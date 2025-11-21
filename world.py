@@ -36,7 +36,8 @@ class World:
         path_length = len(player_path) - 1  # Número de arestas
         
         # Calcula a eficiência
-        efficiency = calculate_path_efficiency(path_length, len(self.optimal_path) - 1)
+        optimal_length = len(self.optimal_path) - 1
+        efficiency = calculate_path_efficiency(path_length, optimal_length)
         
         # Calcula a pontuação base (0-100)
         base_score = int(efficiency * 100)

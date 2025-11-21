@@ -14,11 +14,17 @@ class Player:
         self.path_taken = [starting_node]
         self.items = []
         self.best_times = {}  # {level_id: best_time}
+        self.level_stars = {}  # {level_id: stars_earned}
+        self.lives = 3  # Sistema de vidas
+        self.max_lives = 3
         
     def move_to_node(self, node):
         """Move o personagem para um nó"""
+        old_node = self.current_node
         self.current_node = node
-        self.path_taken.append(node)
+        # Só adiciona se não for o mesmo nó que já está no final do caminho
+        if len(self.path_taken) == 0 or self.path_taken[-1] != node:
+            self.path_taken.append(node)
         
     def add_experience(self, amount):
         """Adiciona experiência e faz level up se necessário"""
@@ -68,3 +74,44 @@ class Player:
         self.current_node = starting_node
         self.path_taken = [starting_node]
         self.health = self.max_health
+    
+    def calculate_stars(self, efficiency):
+        """Calcula quantas estrelas o jogador ganhou baseado na eficiência"""
+        # Converte eficiência de 0-1 para 0-100
+        efficiency_percent = efficiency * 100
+        
+        if efficiency_percent >= 95:
+            return 3  # Perfeito ou quase perfeito (95%+)
+        elif efficiency_percent >= 80:
+            return 2  # Muito bom (80%+)
+        elif efficiency_percent >= 60:
+            return 1  # Razoavel (60%+)
+        else:
+            return 0  # Precisa melhorar (<60%)
+    
+    def update_level_stars(self, level_id, stars):
+        """Atualiza as estrelas de um nível (mantém o melhor resultado)"""
+        if level_id not in self.level_stars or stars > self.level_stars[level_id]:
+            self.level_stars[level_id] = stars
+    
+    def get_level_stars(self, level_id):
+        """Retorna quantas estrelas o jogador tem no nível"""
+        return self.level_stars.get(level_id, 0)
+    
+    def can_advance_level(self, level_id):
+        """Verifica se o jogador pode avançar de nível (precisa de pelo menos 2 estrelas)"""
+        return self.get_level_stars(level_id) >= 2
+    
+    def lose_life(self):
+        """Remove uma vida do jogador"""
+        if self.lives > 0:
+            self.lives -= 1
+        return self.lives > 0
+    
+    def has_lives(self):
+        """Verifica se o jogador ainda tem vidas"""
+        return self.lives > 0
+    
+    def reset_lives(self):
+        """Reseta as vidas para o máximo"""
+        self.lives = self.max_lives
