@@ -38,6 +38,23 @@ class Visualizer:
         self.NINJA_GOLD = (255, 215, 0)  # Ouro ninja
         self.NINJA_DARK = (40, 5, 15)  # Ninja escuro
         
+        # Carregar background ninja
+        self.load_background()
+        
+        # Sistema de som ninja
+        self.load_ninja_sounds()
+        
+        # Carregar botões de imagem
+        self.load_button_images()
+        
+        # Sistema de transições melhorado
+        self.is_transitioning = False
+        self.transition_alpha = 0
+        self.transition_speed = 4  # Velocidade mais lenta para suavidade
+        self.transition_callback = None
+        self.fade_out_first = True
+        self.transition_buffer = pygame.Surface((self.width, self.height))
+        
         # Cores da interface - Design ninja elegante
         self.TEXT_COLOR = (255, 255, 255)  # Texto branco para contraste
         self.TEXT_SHADOW = (50, 10, 20)  # Sombra ninja escura
@@ -75,7 +92,7 @@ class Visualizer:
         
         # Sistema de sprites (removido o sistema antigo em favor do novo sistema de animação)
         
-        # Fontes profissionais
+        # Fonts only for game UI (not menu)
         try:
             self.font_small = pygame.font.SysFont('Arial', 20, bold=True)
             self.font_medium = pygame.font.SysFont('Arial', 28, bold=True)
@@ -212,8 +229,8 @@ class Visualizer:
         self.animation_time += 0.1
         self.player_pulse = math.sin(self.animation_time * 3) * 0.3 + 1
         
-        # Desenha background com gradiente
-        self._draw_gradient_background()
+        # Desenha background ninja
+        self.draw_ninja_background()
         
         if clicked_nodes is None:
             clicked_nodes = set()
@@ -249,8 +266,6 @@ class Visualizer:
         
         # Desenha efeitos de partículas
         self._draw_particle_effects(world, player, node_positions)
-        
-        pygame.display.flip()
     
     def _draw_gradient_background(self):
         """Desenha um fundo com gradiente ninja refinado"""
@@ -463,6 +478,17 @@ class Visualizer:
         
         # Determina se está se movendo
         is_moving = animated_pos is not None
+        
+        # Reproduzir som ninja quando se move
+        if is_moving and not hasattr(self, '_last_whoosh_time'):
+            self.play_ninja_whoosh()
+            self._last_whoosh_time = pygame.time.get_ticks()
+        elif is_moving and hasattr(self, '_last_whoosh_time'):
+            # Evitar spam de som - só toca a cada 500ms
+            current_time = pygame.time.get_ticks()
+            if current_time - self._last_whoosh_time > 500:
+                self.play_ninja_whoosh()
+                self._last_whoosh_time = current_time
         
         if self.use_sprites:
             if is_moving:
@@ -690,103 +716,61 @@ class Visualizer:
         self.screen.blit(controls_line2, (self.width - 350, y_pos + 55))
 
     def draw_menu(self, levels_completed=0, player=None):
-        """Desenha o menu principal com visual profissional"""
-        # Reset hover state
-        self.hovered_button = None
-        
-        # Background com gradiente
-        self._draw_gradient_background()
-        
-        # Efeitos de fundo
-        self._draw_menu_background_effects()
-        
-        # Título principal com sombra
-        title_text = "PathFinder Adventure"
-        
-        # Sombra do título
-        title_shadow = self.font_title.render(title_text, True, self.TEXT_SHADOW)
-        shadow_rect = title_shadow.get_rect(center=(self.width // 2 + 3, 103))
-        self.screen.blit(title_shadow, shadow_rect)
-        
-        # Título principal
-        title = self.font_title.render(title_text, True, (255, 255, 255))
-        title_rect = title.get_rect(center=(self.width // 2, 100))
-        self.screen.blit(title, title_rect)
-        
-        # Subtítulo
-        subtitle = self.font_medium.render(
-            "Navegue grafos, resolva puzzles, desbloqueie mundos!",
-            True, self.TEXT_COLOR
-        )
-        subtitle_rect = subtitle.get_rect(center=(self.width // 2, 180))
-        self.screen.blit(subtitle, subtitle_rect)
-        
-        # Progresso dos níveis com estrelas
-        y = 250
-        if player:
-            progress_title = self.font_medium.render("Progresso dos Níveis:", True, self.TEXT_COLOR)
-            self.screen.blit(progress_title, (100, y))
-            y += 50
+        """Desenha apenas os botões de imagem sobre o video background"""
+        # Verificar se temos botões carregados
+        if not hasattr(self, 'button_images') or not self.button_images:
+            return
             
-            level_names = ["Castelo Encantado", "Floresta Mágica", "Cidade Futurista", "Dimensão Alienígena"]
-            
-            for i, level_name in enumerate(level_names, 1):
-                stars = player.get_level_stars(i)
+        # Posições dos botões (centralizados)
+        mouse_pos = pygame.mouse.get_pos()
+        button_spacing = 140  # Espaçamento total considerando altura do botão (120) + gap (20)
+        
+        # Calcular altura total necessária
+        total_height = len(self.button_images) * button_spacing - 20  # Remove gap extra do último
+        start_y = (self.height - total_height) // 2
+        
+        # Desenhar apenas os botões
+        button_order = ['newgame', 'continue', 'exit']
+        self.menu_buttons = {}  # Armazenar rects para detecção de clique
+        
+        for i, button_name in enumerate(button_order):
+            if button_name in self.button_images:
+                button_data = self.button_images[button_name]
                 
-                # Nome do nível
-                if i <= levels_completed + 1:
-                    color = self.TEXT_COLOR
-                    level_text = f"{i}. {level_name}"
-                else:
-                    color = (100, 100, 100)
-                    level_text = f"{i}. ??? (Bloqueado)"
+                # Calcular posição do botão
+                button_width, button_height = button_data['normal'].get_size()
+                button_x = (self.width - button_width) // 2
+                button_y = start_y + (i * button_spacing)
                 
-                text = self.font_small.render(level_text, True, color)
-                self.screen.blit(text, (120, y))
+                # Criar rect unificado para desenho e detecção
+                button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
                 
-                # Estrelas do nível
-                if i <= levels_completed + 1:
-                    star_x = 500
-                    for star_i in range(3):
-                        if star_i < stars:
-                            star_color = (255, 215, 0)  # Dourado
-                        else:
-                            star_color = (100, 100, 100)   # Cinza
-                        
-                        star_points = self._get_star_points(star_x + star_i * 30, y + 10, 8)
-                        pygame.draw.polygon(self.screen, star_color, star_points)
+                # Verificar hover
+                is_hover = button_rect.collidepoint(mouse_pos)
                 
-                y += 35
-        
-        # Menu options com botões estilizados
-        y += 50
-        
-        # Botão 1: Começar Jogo
-        self._draw_button("Começar Novo Jogo", self.width // 2 - 150, y, 300, 60, 
-                        self.HEALTH_GREEN, "1 ou ESPAÇO", clickable=True, button_id="start_game")
-        
-        y += 80
-        # Botão 2: Continuar (se há progresso)
-        if levels_completed > 0:
-            self._draw_button(f"Continuar (Nível {levels_completed + 1})", self.width // 2 - 150, y, 300, 60, 
-                            (100, 150, 255), "2 ou C", clickable=True, button_id="continue_game")
-        else:
-            self._draw_button("Continuar", self.width // 2 - 150, y, 300, 60, 
-                            (100, 100, 100), "Sem Progresso", clickable=False, button_id="continue_disabled")
-        
-        y += 80
-        # Botão 3: Sair
-        self._draw_button("Sair do Jogo", self.width // 2 - 150, y, 300, 60, 
-                        (200, 80, 80), "3 ou ESC", clickable=True, button_id="exit_game")
-        
-        pygame.display.flip()
+                # Escolher imagem (normal ou hover)
+                button_image = button_data['hover'] if is_hover else button_data['normal']
+                
+                # Desenhar botão
+                self.screen.blit(button_image, button_rect)
+                
+                # Armazenar rect para detecção de clique
+                self.menu_buttons[button_name] = button_rect
+                
+                # Efeito de cursor apenas se não estiver em transição
+                if not getattr(self, 'is_transitioning', False):
+                    if is_hover:
+                        pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+                    else:
+                        pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
     
     def draw_level_complete(self, results):
         """Desenha a tela de nível completo simplificada com botões estilizados"""
         # Reset hover state
         self.hovered_button = None
         
-        self.screen.fill(self.BG_COLOR)
+        # Usar background ninja na tela de vitória
+        self.draw_ninja_background()
         
         # Título
         title = self.font_large.render("Nível Completo!", True, (100, 255, 100))
@@ -830,8 +814,6 @@ class Visualizer:
         y += 70
         self._draw_button("Menu Principal", self.width // 2 - 150, y, 300, 50, 
                         (80, 80, 120), "3 ou ESC", clickable=True, button_id="main_menu")
-        
-        pygame.display.flip()
     
     def _draw_rounded_rect(self, surface, color, x, y, width, height, radius):
         """Desenha um retângulo com bordas arredondadas reais"""
@@ -1141,7 +1123,8 @@ class Visualizer:
         # Reset hover state
         self.hovered_button = None
         
-        self.screen.fill(self.BG_COLOR)
+        # Usar background ninja na tela de game over
+        self.draw_ninja_background()
         
         # Título
         title = self.font_title.render("GAME OVER", True, (255, 50, 50))
@@ -1175,8 +1158,6 @@ class Visualizer:
         y += 70
         self._draw_button("Menu Principal", self.width // 2 - 150, y, 300, 50, 
                         (80, 80, 120), "2 ou ESC", clickable=True, button_id="main_menu_gameover")
-        
-        pygame.display.flip()
     
     def _calculate_node_positions(self, graph, center_x=None, center_y=None, radius=None):
         """Calcula posições dos nós na tela"""
@@ -1382,5 +1363,237 @@ class Visualizer:
         leg_offset = math.sin(self.animation_time * 2 + 1) * 2
         left_leg_end = (pos[0] - 6, pos[1] + 15 + leg_offset)
         right_leg_end = (pos[0] + 6, pos[1] + 15 - leg_offset)
-        pygame.draw.line(self.screen, (255, 200, 150), (pos[0], pos[1] + 10), left_leg_end, 3)
-        pygame.draw.line(self.screen, (255, 200, 150), (pos[0], pos[1] + 10), right_leg_end, 3)
+        pygame.draw.line(self.screen, (255, 200, 150), pos, left_leg_end, 3)
+        pygame.draw.line(self.screen, (255, 200, 150), pos, right_leg_end, 3)
+    
+    def handle_menu_button_click(self, pos):
+        """Detecta cliques nos botões de imagem do menu"""
+        if not hasattr(self, 'menu_buttons'):
+            return None
+            
+        for button_name, button_rect in self.menu_buttons.items():
+            if button_rect.collidepoint(pos):
+                print(f"💆 Clique no botão: {button_name}")
+                return button_name
+                
+        return None
+    
+    def load_background(self):
+        """Carrega a imagem de fundo ninja"""
+        try:
+            import os
+            background_path = "level1_1.png"
+            print(f"🔍 Tentando carregar background: {background_path}")
+            print(f"📁 Diretório atual: {os.getcwd()}")
+            print(f"📋 Arquivos no diretório: {[f for f in os.listdir('.') if f.endswith('.png')]}")
+            
+            if os.path.exists(background_path):
+                self.background_image = pygame.image.load(background_path).convert()
+                # Redimensionar para cobrir toda a tela
+                self.background_image = pygame.transform.scale(self.background_image, (self.width, self.height))
+                print(f"✅ Background ninja carregado com sucesso: {background_path}")
+                print(f"📏 Dimensões: {self.background_image.get_size()}")
+            else:
+                print(f"❌ Background não encontrado: {background_path}")
+                self.background_image = None
+        except Exception as e:
+            print(f"❌ Erro ao carregar background: {e}")
+            self.background_image = None
+    
+    def load_ninja_sounds(self):
+        """Carrega os sons ninja"""
+        try:
+            # Inicializar mixer do pygame
+            pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            
+            import os
+            sound_path = "sounds/810736__mokasza__fast-whoosh.mp3"
+            print(f"🔊 Tentando carregar som ninja: {sound_path}")
+            
+            if os.path.exists(sound_path):
+                self.whoosh_sound = pygame.mixer.Sound(sound_path)
+                self.whoosh_sound.set_volume(0.3)  # Volume moderado
+                print(f"🥷 Som ninja carregado com sucesso!")
+            else:
+                print(f"⚠️ Som ninja não encontrado: {sound_path}")
+                self.whoosh_sound = None
+            
+            # Carregar som de vitória
+            victory_path = "sounds/victory.wav"
+            if os.path.exists(victory_path):
+                self.victory_sound = pygame.mixer.Sound(victory_path)
+                self.victory_sound.set_volume(0.5)  # Volume um pouco mais alto para vitória
+                print(f"🏆 Som de vitória carregado com sucesso!")
+            else:
+                print(f"⚠️ Som de vitória não encontrado: {victory_path}")
+                self.victory_sound = None
+            
+            # Carregar e iniciar música de fundo
+            background_music_path = "sounds/background-music.mp3"
+            if os.path.exists(background_music_path):
+                pygame.mixer.music.load(background_music_path)
+                pygame.mixer.music.set_volume(0.3)  # Volume baixo para não incomodar
+                pygame.mixer.music.play(-1)  # -1 para loop infinito
+                print(f"🎵 Música de fundo iniciada em loop!")
+            else:
+                print(f"⚠️ Música de fundo não encontrada: {background_music_path}")
+                
+        except Exception as e:
+            print(f"❌ Erro ao carregar sons ninja: {e}")
+            self.whoosh_sound = None
+    
+    def play_ninja_whoosh(self):
+        """Reproduz o som de movimento ninja"""
+        try:
+            if hasattr(self, 'whoosh_sound') and self.whoosh_sound:
+                # Para o som anterior se ainda estiver tocando
+                self.whoosh_sound.stop()
+                # Reproduz o som de movimento
+                self.whoosh_sound.play()
+        except Exception as e:
+            # Falha silenciosa para não interromper o jogo
+            pass
+    
+    def play_victory_sound(self):
+        """Reproduz o som de vitória"""
+        try:
+            if hasattr(self, 'victory_sound') and self.victory_sound:
+                # Para outros sons que possam estar tocando
+                if hasattr(self, 'whoosh_sound') and self.whoosh_sound:
+                    self.whoosh_sound.stop()
+                # Reproduz o som de vitória
+                self.victory_sound.play()
+                print("🎵 Som de vitória tocando!")
+        except Exception as e:
+            # Falha silenciosa para não interromper o jogo
+            pass
+    
+    def pause_background_music(self):
+        """Pausa a música de fundo"""
+        try:
+            pygame.mixer.music.pause()
+            print("⏸️ Música de fundo pausada")
+        except Exception as e:
+            pass
+    
+    def resume_background_music(self):
+        """Resume a música de fundo"""
+        try:
+            pygame.mixer.music.unpause()
+            print("▶️ Música de fundo retomada")
+        except Exception as e:
+            pass
+    
+    def stop_background_music(self):
+        """Para a música de fundo"""
+        try:
+            pygame.mixer.music.stop()
+            print("⏹️ Música de fundo parada")
+        except Exception as e:
+            pass
+    
+    def load_button_images(self):
+        """Carrega as imagens dos botões do menu"""
+        try:
+            import os
+            self.button_images = {}
+            
+            # Definir botões disponíveis
+            buttons = {
+                'newgame': 'bttns/newgamebtn.png',
+                'continue': 'bttns/continuebtn.png',
+                'exit': 'bttns/sair.png'
+            }
+            
+            for button_name, button_path in buttons.items():
+                if os.path.exists(button_path):
+                    # Carregar imagem original
+                    original = pygame.image.load(button_path).convert_alpha()
+                    
+                    # Redimensionar para tamanho maior (380x120 pixels)
+                    button_size = (380, 120)
+                    original = pygame.transform.scale(original, button_size)
+                    
+                    # Criar versão hover (brilho mais sutil)
+                    hover = original.copy()
+                    # Aplicar efeito de brilho muito sutil
+                    bright_overlay = pygame.Surface(hover.get_size(), pygame.SRCALPHA)
+                    bright_overlay.fill((255, 255, 255, 20))  # Branco semi-transparente mais suave
+                    hover.blit(bright_overlay, (0, 0), special_flags=pygame.BLEND_ADD)
+                    
+                    self.button_images[button_name] = {
+                        'normal': original,
+                        'hover': hover,
+                        'rect': original.get_rect()
+                    }
+                    print(f"✅ Botão carregado: {button_name} - {button_path}")
+                else:
+                    print(f"⚠️ Botão não encontrado: {button_path}")
+                    
+        except Exception as e:
+            print(f"❌ Erro ao carregar botões: {e}")
+            self.button_images = {}
+    
+    def start_fade_transition(self, callback=None, fade_out_first=True):
+        """Inicia uma transição fade clássica"""
+        self.is_transitioning = True
+        self.transition_callback = callback
+        self.fade_out_first = fade_out_first
+        
+        if fade_out_first:
+            # Começa transparente e escurece
+            self.transition_alpha = 0
+            self.fading_out = True
+        else:
+            # Começa escuro e clareia
+            self.transition_alpha = 255
+            self.fading_out = False
+            
+        print(f"🎬 Iniciando transição fade {'out' if fade_out_first else 'in'}")
+    
+    def update_transition(self):
+        """Atualiza a transição fade"""
+        if not self.is_transitioning:
+            return False
+            
+        if self.fading_out:
+            # Fade out (escurecer)
+            self.transition_alpha = min(255, self.transition_alpha + self.transition_speed)
+            if self.transition_alpha >= 255:
+                # Executar callback quando completamente preto
+                if self.transition_callback:
+                    self.transition_callback()
+                    self.transition_callback = None
+                self.fading_out = False
+        else:
+            # Fade in (clarear)
+            self.transition_alpha = max(0, self.transition_alpha - self.transition_speed)
+            if self.transition_alpha <= 0:
+                self.is_transitioning = False
+                return True
+        
+        return False
+    
+    def apply_transition_effect(self):
+        """Aplica efeito de transição diretamente na tela"""
+        if self.is_transitioning and self.transition_alpha > 0:
+            # Criar overlay preto com alpha usando SRCALPHA para melhor blending
+            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, self.transition_alpha))
+            
+            # Aplicar diretamente na tela
+            self.screen.blit(overlay, (0, 0))
+    
+    def draw_ninja_background(self):
+        """Desenha o fundo ninja com efeitos"""
+        if hasattr(self, 'background_image') and self.background_image:
+            # Desenhar a imagem de fundo
+            self.screen.blit(self.background_image, (0, 0))
+            
+            # Adicionar overlay muito sutil para não escurecer demais
+            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            overlay.fill((self.BG_COLOR[0], self.BG_COLOR[1], self.BG_COLOR[2], 30))
+            self.screen.blit(overlay, (0, 0))
+        else:
+            # Fallback para cor sólida se não houver imagem
+            self.screen.fill(self.BG_COLOR)

@@ -10,11 +10,28 @@ from world import World
 from visualizer import Visualizer
 from pathfinding import dijkstra, calculate_path_efficiency
 import time
+from modern_ui import ModernNinjaUI, NinjaMenuSystem
+import cv2
+import numpy as np
 
 class Game:
     def __init__(self):
         pygame.init()
         self.visualizer = Visualizer()
+        
+        # Sistema de UI moderna ninja
+        self.modern_ui = ModernNinjaUI(1200, 800)
+        self.menu_system = NinjaMenuSystem(1200, 800)
+        
+        # Sistema de transições
+        self.pending_state_change = None
+        self.pending_level = None
+        
+        # Sistema de vídeo background
+        self.video_cap = None
+        self.video_surface = None
+        self.video_frame = None
+        self.load_video_background()
         
         # Debug: força uso de sprites se disponíveis e recarrega com tamanho atual
         if hasattr(self.visualizer, 'idle_sprites') and self.visualizer.idle_sprites:
@@ -68,19 +85,29 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            
+            # Processar eventos da UI moderna
+            self.modern_ui.handle_event(event)
+            
+            # Cliques do mouse no menu
+            if event.type == pygame.MOUSEBUTTONDOWN and self.game_state == "menu":
+                action = self.menu_system.handle_click(event.pos)
+                if action == "start":
+                    self.start_level_with_transition(1)
+                elif action == "exit":
+                    return False
                 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     if self.game_state == "playing":
-                        self.game_state = "menu"
-                        self.clicked_nodes = set()
+                        self.goto_menu_with_transition()
                     else:
                         return False
                 
                 # Menu
                 if self.game_state == "menu":
                     if event.key == pygame.K_1:
-                        self.start_level(1)
+                        self.start_level_with_transition(1)
                     elif event.key == pygame.K_2:
                         self.show_stats()
                     elif event.key == pygame.K_3:
@@ -485,17 +512,17 @@ class Game:
         if button_x <= pos[0] <= button_x + button_width and button1_y <= pos[1] <= button1_y + button_height:
             if self.level_results.get("can_advance", False):
                 if self.current_level < 20:
-                    self.start_level(self.current_level + 1)
+                    self.start_level_with_transition(self.current_level + 1)
                 else:
-                    self.game_state = "menu"
+                    self.goto_menu_with_transition()
         
         # Botão 2: Repetir nível
         elif button_x <= pos[0] <= button_x + button_width and button2_y <= pos[1] <= button2_y + button_height:
-            self.start_level(self.current_level)
+            self.start_level_with_transition(self.current_level)
         
         # Botão 3: Menu
         elif button_x <= pos[0] <= button_x + button_width and button3_y <= pos[1] <= button3_y + button_height:
-            self.game_state = "menu"
+            self.goto_menu_with_transition()
     
     def handle_game_over_click(self, pos):
         """Gerencia cliques na tela de game over"""
@@ -507,41 +534,23 @@ class Game:
         # Botão 1: Recomeçar (y = 420)
         if button_x <= pos[0] <= button_x + button_width and 420 <= pos[1] <= 420 + button_height:
             self.player.reset_lives()
-            self.start_level(1)
+            self.start_level_with_transition(1)
         
         # Botão 2: Menu (y = 490)
         elif button_x <= pos[0] <= button_x + button_width and 490 <= pos[1] <= 490 + button_height:
             self.player.reset_lives()
-            self.game_state = "menu"
+            self.goto_menu_with_transition()
     
     def handle_menu_click(self, pos):
-        """Gerencia cliques no menu principal"""
-        button_width = 300
-        button_height = 60
-        button_x = self.visualizer.width // 2 - 150
+        """Gerencia cliques no menu principal com botões de imagem"""
+        button_clicked = self.visualizer.handle_menu_button_click(pos)
         
-        # Calcular posições Y baseadas no draw_menu
-        y_start = 250 + 50  # Após o progresso dos níveis
-        if self.player.level > 0:  # Se tem progresso, adicionar espaço para estrelas
-            y_start += (4 * 35) + 50  # 4 níveis * 35px + espaço
-        else:
-            y_start += 50
-            
-        button1_y = y_start          # Começar Jogo
-        button2_y = y_start + 80     # Continuar
-        button3_y = y_start + 160    # Sair
-        
-        # Botão 1: Começar Novo Jogo
-        if button_x <= pos[0] <= button_x + button_width and button1_y <= pos[1] <= button1_y + button_height:
-            self.start_level(1)
-        
-        # Botão 2: Continuar (se disponível)
-        elif button_x <= pos[0] <= button_x + button_width and button2_y <= pos[1] <= button2_y + button_height:
+        if button_clicked == 'newgame':
+            self.start_level_with_transition(1)
+        elif button_clicked == 'continue':
             if self.player.level > 0:
-                self.start_level(self.player.level)
-        
-        # Botão 3: Sair
-        elif button_x <= pos[0] <= button_x + button_width and button3_y <= pos[1] <= button3_y + button_height:
+                self.start_level_with_transition(self.player.level)
+        elif button_clicked == 'exit':
             return False  # Indica para sair do jogo
             
         return True  # Continuar no jogo
@@ -636,6 +645,10 @@ class Game:
             if self.move_to_node == self.world.end_node:
                 print(f"🎉 VITÓRIA! Chegou ao nó final {self.move_to_node}! Estado atual: {self.game_state}")
                 print(f"🛤️ Caminho percorrido: {self.player.path_taken}")
+                
+                # Tocar som de vitória
+                self.visualizer.play_victory_sound()
+                
                 if self.game_state == "playing":  # Só completa se ainda estiver jogando
                     self.complete_level()
                 else:
@@ -750,6 +763,17 @@ class Game:
     
     def update(self):
         """Atualiza o estado do jogo"""
+        # Atualizar UI moderna
+        dt = pygame.time.get_ticks() * 0.001  # Converter para segundos
+        self.modern_ui.update(dt)
+        
+        # Atualizar vídeo de fundo se estivermos no menu
+        if self.game_state == "menu":
+            self.update_video_background()
+        
+        # Atualizar transições
+        self.visualizer.update_transition()
+        
         # Atualiza animação de movimento se estiver ativa
         if self.is_moving:
             self.update_movement_animation()
@@ -781,6 +805,9 @@ class Game:
     def draw(self):
         """Desenha o estado atual"""
         if self.game_state == "menu":
+            # Desenhar vídeo de fundo primeiro
+            self.draw_video_background()
+            # Depois desenhar o menu por cima
             levels_completed = self.current_level - 1
             self.visualizer.draw_menu(levels_completed, self.player)
         
@@ -798,6 +825,15 @@ class Game:
         
         elif self.game_state == "game_over":
             self.visualizer.draw_game_over(self.player)
+        
+        # Desenhar UI moderna por cima (temporariamente desabilitado)
+        # self.modern_ui.draw(self.visualizer.screen)
+        
+        # Aplicar efeito de transição se ativo
+        self.visualizer.apply_transition_effect()
+        
+        # Atualizar display apenas uma vez por frame
+        pygame.display.flip()
     
     def run(self):
         """Loop principal do jogo"""
@@ -817,9 +853,105 @@ class Game:
             self.draw()
             clock.tick(60)
         
+        # Parar música de fundo antes de sair
+        self.visualizer.stop_background_music()
+        
+        # Limpar recursos de vídeo
+        if self.video_cap:
+            self.video_cap.release()
+        
         pygame.quit()
         print("\n👋 Obrigado por jogar PathFinder Adventure!\n")
         sys.exit()
+    
+    # Métodos de transição
+    def start_level_with_transition(self, level):
+        """Inicia um nível com transição fade"""
+        if not self.visualizer.is_transitioning:
+            self.pending_level = level
+            callback = lambda: self._execute_start_level(level)
+            self.visualizer.start_fade_transition(callback)
+    
+    def goto_menu_with_transition(self):
+        """Volta ao menu com transição fade"""
+        if not self.visualizer.is_transitioning:
+            callback = lambda: self._execute_goto_menu()
+            self.visualizer.start_fade_transition(callback)
+    
+    def next_level_with_transition(self):
+        """Avança para o próximo nível com transição"""
+        if not self.visualizer.is_transitioning:
+            callback = lambda: self._execute_next_level()
+            self.visualizer.start_fade_transition(callback)
+    
+    def _execute_start_level(self, level):
+        """Executa o início do nível após transição"""
+        self.start_level(level)
+    
+    def _execute_goto_menu(self):
+        """Executa volta ao menu após transição"""
+        self.game_state = "menu"
+        self.clicked_nodes = set()
+    
+    def _execute_next_level(self):
+        """Executa avanço de nível após transição"""
+        self.current_level += 1
+        if self.current_level > 20:
+            print("🎉 PARABÉNS! Você completou todos os níveis!")
+            self.game_state = "menu"
+        else:
+            self.start_level(self.current_level)
+    
+    def load_video_background(self):
+        """Carrega o vídeo de fundo para o menu"""
+        try:
+            import os
+            video_path = "videos/Math.mp4"
+            if os.path.exists(video_path):
+                self.video_cap = cv2.VideoCapture(video_path)
+                print(f"🎥 Vídeo background carregado: {video_path}")
+                
+                # Configurar loop do vídeo
+                self.video_frame_count = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                self.video_fps = self.video_cap.get(cv2.CAP_PROP_FPS)
+                self.video_current_frame = 0
+                
+                print(f"🎬 Vídeo: {self.video_frame_count} frames, {self.video_fps} FPS")
+            else:
+                print(f"⚠️ Vídeo não encontrado: {video_path}")
+                self.video_cap = None
+        except Exception as e:
+            print(f"❌ Erro ao carregar vídeo: {e}")
+            self.video_cap = None
+    
+    def update_video_background(self):
+        """Atualiza o frame do vídeo de fundo"""
+        if self.video_cap is None:
+            return
+            
+        try:
+            ret, frame = self.video_cap.read()
+            if not ret:
+                # Reiniciar vídeo quando chegar ao final
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = self.video_cap.read()
+            
+            if ret:
+                # Converter BGR (OpenCV) para RGB (Pygame)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Redimensionar para o tamanho da tela
+                frame = cv2.resize(frame, (self.visualizer.width, self.visualizer.height))
+                # Converter para superficie pygame
+                self.video_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+                
+        except Exception as e:
+            print(f"❌ Erro ao atualizar vídeo: {e}")
+    
+    def draw_video_background(self):
+        """Desenha o vídeo de fundo sem overlay"""
+        if self.video_frame:
+            self.visualizer.screen.blit(self.video_frame, (0, 0))
+            # Sem overlay - vídeo puro como background
 
 if __name__ == "__main__":
     game = Game()
