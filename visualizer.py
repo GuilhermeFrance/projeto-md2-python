@@ -41,6 +41,12 @@ class Visualizer:
         # Carregar background ninja
         self.load_background()
         
+        # Carregar background de nível completo
+        self.load_level_complete_background()
+        
+        # Carregar imagens de estrelas
+        self.load_star_images()
+        
         # Sistema de som ninja
         self.load_ninja_sounds()
         
@@ -721,23 +727,31 @@ class Visualizer:
         if not hasattr(self, 'button_images') or not self.button_images:
             return
             
-        # Posições dos botões (centralizados)
+        # Posições dos botões (centralizados verticalmente)
         mouse_pos = pygame.mouse.get_pos()
-        button_spacing = 140  # Espaçamento total considerando altura do botão (120) + gap (20)
         
-        # Calcular altura total necessária
-        total_height = len(self.button_images) * button_spacing - 20  # Remove gap extra do último
-        start_y = (self.height - total_height) // 2
+        # Verificar se há progresso salvo (assumindo levels_completed > 0 indica progresso)
+        has_progress = levels_completed > 0
         
-        # Desenhar apenas os botões
-        button_order = ['newgame', 'continue', 'exit']
+        # Definir botões a serem exibidos
+        buttons_to_draw = [
+            ('newgame', 'newgame'),
+            ('continue', 'continue' if has_progress else 'continue_disabled'),
+            ('exit', 'exit')
+        ]
+        
+        # Calcular espaçamento e posição inicial
+        button_spacing = 100  # Espaçamento ainda maior entre botões
+        total_height = len(buttons_to_draw) * button_spacing - 30
+        start_y = (self.height - total_height) // 2 + 80  # Mover botões para baixo
+        
         self.menu_buttons = {}  # Armazenar rects para detecção de clique
         
-        for i, button_name in enumerate(button_order):
-            if button_name in self.button_images:
-                button_data = self.button_images[button_name]
+        for i, (button_id, button_key) in enumerate(buttons_to_draw):
+            if button_key in self.button_images:
+                button_data = self.button_images[button_key]
                 
-                # Calcular posição do botão
+                # Calcular posição do botão (centralizado)
                 button_width, button_height = button_data['normal'].get_size()
                 button_x = (self.width - button_width) // 2
                 button_y = start_y + (i * button_spacing)
@@ -745,75 +759,129 @@ class Visualizer:
                 # Criar rect unificado para desenho e detecção
                 button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
                 
-                # Verificar hover
-                is_hover = button_rect.collidepoint(mouse_pos)
+                # Verificar hover (apenas se o botão estiver habilitado)
+                is_enabled = not (button_id == 'continue' and not has_progress)
+                is_hover = button_rect.collidepoint(mouse_pos) and is_enabled
                 
-                # Escolher imagem (normal ou hover)
+                # Escolher imagem (normal ou hover, apenas se habilitado)
                 button_image = button_data['hover'] if is_hover else button_data['normal']
                 
                 # Desenhar botão
                 self.screen.blit(button_image, button_rect)
                 
-                # Armazenar rect para detecção de clique
-                self.menu_buttons[button_name] = button_rect
+                # Armazenar rect para detecção de clique (apenas se habilitado)
+                if is_enabled:
+                    self.menu_buttons[button_id] = button_rect
                 
-                # Efeito de cursor apenas se não estiver em transição
+                # Efeito de cursor apenas se não estiver em transição e botão habilitado
                 if not getattr(self, 'is_transitioning', False):
-                    if is_hover:
+                    if is_hover and is_enabled:
                         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
                     else:
                         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
     
     def draw_level_complete(self, results):
-        """Desenha a tela de nível completo simplificada com botões estilizados"""
+        """Desenha a tela de nível completo com background personalizado e estrelas em imagem"""
         # Reset hover state
         self.hovered_button = None
         
-        # Usar background ninja na tela de vitória
-        self.draw_ninja_background()
+        # Usar background de nível completo ou fallback para ninja
+        if hasattr(self, 'level_complete_bg') and self.level_complete_bg:
+            self.screen.blit(self.level_complete_bg, (0, 0))
+        else:
+            self.draw_ninja_background()
         
-        # Título
-        title = self.font_large.render("Nível Completo!", True, (100, 255, 100))
-        title_rect = title.get_rect(center=(self.width // 2, 80))
-        self.screen.blit(title, title_rect)
-        
-        # Sistema de estrelas
+        # Sistema de estrelas com imagens (acima das estatísticas)
         stars_earned = results.get('stars_earned', 0)
-        self._draw_stars_display(stars_earned, results.get('efficiency', 0), compact=True)
+        stars_y = 330  # Posição das estrelas ainda mais abaixo
+        self._draw_image_stars_at_position(stars_earned, stars_y)
         
-        # Relatório simplificado
-        y = 280
-        summary_lines = [
-            f"Mundo: {results['level_name']}",
-            f"Eficiência: {results['efficiency']*100:.1f}%",
-            f"Tempo: {results['time_taken']:.1f}s",
-            f"Pontuação: {results['total_score']} (+{results['xp_gained']} XP)"
-        ]
+        # Relatório simplificado lado a lado (abaixo das estrelas)
+        info_y = 370
         
-        for line in summary_lines:
-            text = self.font_medium.render(line, True, self.TEXT_COLOR)
-            text_rect = text.get_rect(center=(self.width // 2, y))
-            self.screen.blit(text, text_rect)
-            y += 35
+        # Linha superior: Mundo e Eficiência
+        mundo_text = self.font_medium.render(f"Mundo: {results['level_name']}", True, self.TEXT_COLOR)
+        eficiencia_text = self.font_medium.render(f"Eficiência: {results['efficiency']*100:.1f}%", True, self.TEXT_COLOR)
         
-        # Botões estilizados
-        y += 50
+        # Posicionar textos lado a lado
+        mundo_x = self.width // 4 - mundo_text.get_width() // 2
+        eficiencia_x = 3 * self.width // 4 - eficiencia_text.get_width() // 2
+        
+        self.screen.blit(mundo_text, (mundo_x, info_y))
+        self.screen.blit(eficiencia_text, (eficiencia_x, info_y))
+        
+        # Linha inferior: Tempo e Pontuação
+        tempo_text = self.font_medium.render(f"Tempo: {results['time_taken']:.1f}s", True, self.TEXT_COLOR)
+        pontuacao_text = self.font_medium.render(f"Pontuação: {results['total_score']} (+{results['xp_gained']} XP)", True, self.TEXT_COLOR)
+        
+        tempo_x = self.width // 4 - tempo_text.get_width() // 2
+        pontuacao_x = 3 * self.width // 4 - pontuacao_text.get_width() // 2
+        
+        self.screen.blit(tempo_text, (tempo_x, info_y + 35))
+        self.screen.blit(pontuacao_text, (pontuacao_x, info_y + 35))
+        
+        # Botões com imagens
+        y = info_y + 60  # Ainda menos espaço após as informações lado a lado
         can_advance = results.get('can_advance', False)
         
-        if can_advance:
-            self._draw_button("Próximo Nível", self.width // 2 - 150, y, 300, 50, 
-                            self.HEALTH_GREEN, "1 ou ESPAÇO", clickable=True, button_id="next_level")
-        else:
-            self._draw_button("Precisa 2+ Estrelas", self.width // 2 - 150, y, 300, 50, 
-                            self.HEALTH_RED, "Bloqueado", clickable=False, button_id="next_level_disabled")
+        # Botões da tela de conclusão
+        completion_buttons = [
+            ('next_level' if can_advance else 'next_level_disabled', 'next_level'),
+            ('repeat_level', 'repeat_level'),
+            ('main_menu', 'main_menu')
+        ]
         
-        y += 70
-        self._draw_button("Repetir Nível", self.width // 2 - 150, y, 300, 50, 
-                        self.NODE_COLOR, "2 ou R", clickable=True, button_id="repeat_level")
+        button_spacing = 120  # Maior gap entre botões
+        self.completion_buttons = {}  # Para detecção de clique
+        mouse_pos = pygame.mouse.get_pos()
         
-        y += 70
-        self._draw_button("Menu Principal", self.width // 2 - 150, y, 300, 50, 
-                        (80, 80, 120), "3 ou ESC", clickable=True, button_id="main_menu")
+        for i, (button_key, button_id) in enumerate(completion_buttons):
+            # Pular botão de próximo nível se não habilitado e sem imagem disabled
+            if button_key == 'next_level_disabled' and 'next_level_disabled' not in self.button_images:
+                continue
+                
+            if button_key in self.button_images or (button_key == 'next_level_disabled' and 'next_level' in self.button_images):
+                # Usar imagem normal para disabled se não houver versão disabled
+                actual_key = button_key if button_key in self.button_images else 'next_level'
+                button_data = self.button_images[actual_key]
+                
+                # Calcular posição do botão
+                button_width, button_height = button_data['normal'].get_size()
+                button_x = (self.width - button_width) // 2
+                button_y = y + (i * button_spacing)
+                
+                # Criar rect para detecção
+                button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+                
+                # Verificar hover (apenas se habilitado)
+                is_enabled = not (button_key == 'next_level_disabled')
+                is_hover = button_rect.collidepoint(mouse_pos) and is_enabled
+                
+                # Escolher imagem
+                if button_key == 'next_level_disabled':
+                    # Botão disabled - usar imagem normal sem hover
+                    button_image = button_data['normal']
+                    # Aplicar efeito de desabilitação
+                    disabled_surface = button_image.copy()
+                    disabled_overlay = pygame.Surface(disabled_surface.get_size(), pygame.SRCALPHA)
+                    disabled_overlay.fill((128, 128, 128, 128))  # Overlay cinza
+                    disabled_surface.blit(disabled_overlay, (0, 0), special_flags=pygame.BLEND_MULT)
+                    button_image = disabled_surface
+                else:
+                    button_image = button_data['hover'] if is_hover else button_data['normal']
+                
+                # Desenhar botão
+                self.screen.blit(button_image, button_rect)
+                
+                # Armazenar para detecção de clique
+                if is_enabled:
+                    self.completion_buttons[button_id] = button_rect
+                
+                # Cursor
+                if not getattr(self, 'is_transitioning', False) and is_hover and is_enabled:
+                    pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+                elif not is_hover:
+                    pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
     
     def _draw_rounded_rect(self, surface, color, x, y, width, height, radius):
         """Desenha um retângulo com bordas arredondadas reais"""
@@ -1378,6 +1446,18 @@ class Visualizer:
                 
         return None
     
+    def handle_completion_button_click(self, pos):
+        """Detecta cliques nos botões de imagem da tela de conclusão"""
+        if not hasattr(self, 'completion_buttons'):
+            return None
+            
+        for button_name, button_rect in self.completion_buttons.items():
+            if button_rect.collidepoint(pos):
+                print(f"🎯 Clique no botão de conclusão: {button_name}")
+                return button_name
+                
+        return None
+    
     def load_background(self):
         """Carrega a imagem de fundo ninja"""
         try:
@@ -1399,6 +1479,43 @@ class Visualizer:
         except Exception as e:
             print(f"❌ Erro ao carregar background: {e}")
             self.background_image = None
+    
+    def load_level_complete_background(self):
+        """Carrega o background de nível completo"""
+        try:
+            import os
+            bg_path = "images/background/nivelcompleto.png"
+            if os.path.exists(bg_path):
+                original = pygame.image.load(bg_path).convert()
+                self.level_complete_bg = pygame.transform.scale(original, (self.width, self.height))
+                print(f"✅ Background de nível completo carregado: {bg_path}")
+            else:
+                print(f"⚠️ Background de nível completo não encontrado: {bg_path}")
+                self.level_complete_bg = None
+        except Exception as e:
+            print(f"❌ Erro ao carregar background de nível completo: {e}")
+            self.level_complete_bg = None
+    
+    def load_star_images(self):
+        """Carrega as imagens de estrelas"""
+        try:
+            import os
+            self.star_images = {}
+            star_files = {
+                1: "images/elements/onestar.png",
+                2: "images/elements/twostars.png", 
+                3: "images/elements/threestarts.png"
+            }
+            
+            for stars, path in star_files.items():
+                if os.path.exists(path):
+                    self.star_images[stars] = pygame.image.load(path).convert_alpha()
+                    print(f"✅ Imagem de {stars} estrela(s) carregada: {path}")
+                else:
+                    print(f"⚠️ Imagem de estrelas não encontrada: {path}")
+        except Exception as e:
+            print(f"❌ Erro ao carregar imagens de estrelas: {e}")
+            self.star_images = {}
     
     def load_ninja_sounds(self):
         """Carrega os sons ninja"""
@@ -1498,11 +1615,15 @@ class Visualizer:
             import os
             self.button_images = {}
             
-            # Definir botões disponíveis
+            # Definir botões disponíveis (menu e conclusão)
             buttons = {
-                'newgame': 'bttns/newgamebtn.png',
-                'continue': 'bttns/continuebtn.png',
-                'exit': 'bttns/sair.png'
+                'newgame': 'bttns/novojogo (1).png',
+                'continue': 'bttns/continuar (1).png',
+                'continue_disabled': 'bttns/continuardisabled (1).png',
+                'exit': 'bttns/sair (2).png',
+                'next_level': 'bttns/nextlevel.png',
+                'repeat_level': 'bttns/repeatlevel.png',
+                'main_menu': 'bttns/gotomenu.png'
             }
             
             for button_name, button_path in buttons.items():
@@ -1510,16 +1631,15 @@ class Visualizer:
                     # Carregar imagem original
                     original = pygame.image.load(button_path).convert_alpha()
                     
-                    # Redimensionar para tamanho maior (380x120 pixels)
-                    button_size = (380, 120)
-                    original = pygame.transform.scale(original, button_size)
+                    # Usar tamanho original das novas imagens menores
+                    original = original  # Manter tamanho original
                     
-                    # Criar versão hover (brilho mais sutil)
+                    # Criar versão hover (dessaturação sutil)
                     hover = original.copy()
-                    # Aplicar efeito de brilho muito sutil
-                    bright_overlay = pygame.Surface(hover.get_size(), pygame.SRCALPHA)
-                    bright_overlay.fill((255, 255, 255, 20))  # Branco semi-transparente mais suave
-                    hover.blit(bright_overlay, (0, 0), special_flags=pygame.BLEND_ADD)
+                    # Aplicar efeito de dessaturação muito sutil
+                    desaturate_overlay = pygame.Surface(hover.get_size(), pygame.SRCALPHA)
+                    desaturate_overlay.fill((128, 128, 128, 15))  # Cinza muito sutil para dessaturar
+                    hover.blit(desaturate_overlay, (0, 0), special_flags=pygame.BLEND_MULT)
                     
                     self.button_images[button_name] = {
                         'normal': original,
@@ -1597,3 +1717,25 @@ class Visualizer:
         else:
             # Fallback para cor sólida se não houver imagem
             self.screen.fill(self.BG_COLOR)
+    
+    def _draw_image_stars(self, stars_earned):
+        """Desenha estrelas usando imagens (centralizado na tela)"""
+        if hasattr(self, 'star_images') and stars_earned in self.star_images:
+            star_image = self.star_images[stars_earned]
+            # Centralizar a imagem de estrelas na tela
+            star_rect = star_image.get_rect(center=(self.width // 2, self.height // 2))
+            self.screen.blit(star_image, star_rect)
+        else:
+            # Fallback para desenho manual se imagens não estiverem disponíveis
+            self._draw_stars_display(stars_earned, 0, compact=True)
+    
+    def _draw_image_stars_at_position(self, stars_earned, y_position):
+        """Desenha estrelas usando imagens em uma posição Y específica"""
+        if hasattr(self, 'star_images') and stars_earned in self.star_images:
+            star_image = self.star_images[stars_earned]
+            # Centralizar horizontalmente, posicionar na altura especificada
+            star_rect = star_image.get_rect(center=(self.width // 2, y_position))
+            self.screen.blit(star_image, star_rect)
+        else:
+            # Fallback para desenho manual se imagens não estiverem disponíveis
+            self._draw_stars_display(stars_earned, 0, compact=True)

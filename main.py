@@ -496,32 +496,19 @@ class Game:
             print("Sem vidas para reiniciar!")
     
     def handle_level_complete_click(self, pos):
-        """Gerencia cliques na tela de level complete"""
-        # Coordenadas dos botões (sincronizadas com visualizer.py)
-        button_width = 300
-        button_height = 50
-        button_x = self.visualizer.width // 2 - 150
+        """Gerencia cliques na tela de level complete com botões de imagem"""
+        # Usar novo sistema de detecção de botões de imagem
+        clicked_button = self.visualizer.handle_completion_button_click(pos)
         
-        # Calcular posições Y baseadas no draw_level_complete
-        y_start = 280 + (4 * 35) + 50  # 280 (início) + summary_lines + espaço
-        button1_y = y_start              # ~445
-        button2_y = y_start + 70         # ~515  
-        button3_y = y_start + 140        # ~585
-        
-        # Botão 1: Próximo nível
-        if button_x <= pos[0] <= button_x + button_width and button1_y <= pos[1] <= button1_y + button_height:
+        if clicked_button == "next_level":
             if self.level_results.get("can_advance", False):
                 if self.current_level < 20:
                     self.start_level_with_transition(self.current_level + 1)
                 else:
                     self.goto_menu_with_transition()
-        
-        # Botão 2: Repetir nível
-        elif button_x <= pos[0] <= button_x + button_width and button2_y <= pos[1] <= button2_y + button_height:
+        elif clicked_button == "repeat_level":
             self.start_level_with_transition(self.current_level)
-        
-        # Botão 3: Menu
-        elif button_x <= pos[0] <= button_x + button_width and button3_y <= pos[1] <= button3_y + button_height:
+        elif clicked_button == "main_menu":
             self.goto_menu_with_transition()
     
     def handle_game_over_click(self, pos):
@@ -951,7 +938,9 @@ class Game:
         """Desenha o vídeo de fundo sem overlay"""
         if self.video_frame:
             self.visualizer.screen.blit(self.video_frame, (0, 0))
-            # Sem overlay - vídeo puro como background
+        else:
+            # Fallback: usar fundo ninja quando vídeo não está disponível
+            self.visualizer.draw_ninja_background()
 
 if __name__ == "__main__":
     game = Game()

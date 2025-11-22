@@ -126,35 +126,35 @@ def get_level_config(level_id):
     levels = {
         # FÁCIL (1-5) - Introdução aos conceitos
         1: {
-            "name": "🏰 Castelo Encantado",
+            "name": "🏯 Dojo dos Iniciantes",
             "description": "Fuja do castelo encantado no menor tempo!",
             "difficulty": "Fácil",
             "time_limit": 120,
             "generator": generate_castle_graph,
         },
         2: {
-            "name": "🌲 Floresta Mágica",
+            "name": "🌲 Floresta dos Shinobi",
             "description": "Navegue pela floresta repleta de magia!",
             "difficulty": "Fácil",
             "time_limit": 130,
             "generator": generate_forest_graph,
         },
         3: {
-            "name": "🏛️ Templo Antigo",
+            "name": "⛩️ Templo dos Samurai",
             "description": "Explore as ruínas do templo perdido!",
             "difficulty": "Fácil",
             "time_limit": 140,
             "generator": generate_temple_graph,
         },
         4: {
-            "name": "🌊 Ilha Misteriosa",
+            "name": "🏝️ Ilha dos Ronin",
             "description": "Atravesse a ilha repleta de mistérios!",
             "difficulty": "Fácil",
             "time_limit": 150,
             "generator": generate_island_graph,
         },
         5: {
-            "name": "⚡ Laboratório Elétrico",
+            "name": "⚡ Vale dos Raijin",
             "description": "Escape do laboratório carregado de energia!",
             "difficulty": "Fácil",
             "time_limit": 160,
@@ -163,35 +163,35 @@ def get_level_config(level_id):
         
         # MÉDIO (6-10) - Complexidade crescente
         6: {
-            "name": "🏙️ Cidade Futurista",
+            "name": "🌃 Edo dos Ninja",
             "description": "Escape da metrópole do futuro!",
             "difficulty": "Médio",
             "time_limit": 180,
             "generator": generate_city_graph,
         },
         7: {
-            "name": "🌋 Vulcão Ativo",
+            "name": "🌋 Montanha do Dragão",
             "description": "Fuja antes que a lava chegue até você!",
             "difficulty": "Médio",
             "time_limit": 200,
             "generator": generate_volcano_graph,
         },
         8: {
-            "name": "❄️ Cavernas Geladas",
+            "name": "❄️ Picos de Yuki-Onna",
             "description": "Navegue pelas cavernas congelantes!",
             "difficulty": "Médio",
             "time_limit": 220,
             "generator": generate_ice_caves_graph,
         },
         9: {
-            "name": "🎪 Circo Mágico",
+            "name": "🎆 Festival Matsuri",
             "description": "Encontre a saída no circo encantado!",
             "difficulty": "Médio",
             "time_limit": 240,
             "generator": generate_circus_graph,
         },
         10: {
-            "name": "🚀 Estação Espacial",
+            "name": "☁️ Fortaleza Celestial",
             "description": "Escape da estação antes da explosão!",
             "difficulty": "Médio",
             "time_limit": 260,
@@ -200,35 +200,35 @@ def get_level_config(level_id):
         
         # MÉDIO AVANÇADO (11-15) - Desafios maiores
         11: {
-            "name": "Castelo do Dragão",
+            "name": "🏰 Palácio do Shogun",
             "description": "Atravesse o lar do dragão ancestral!",
             "difficulty": "Médio Avançado",
             "time_limit": 280,
             "generator": generate_dragon_castle_graph,
         },
         12: {
-            "name": "Portal Dimensional",
+            "name": "🌀 Portal dos Kami",
             "description": "Navegue entre as dimensões paralelas!",
             "difficulty": "Médio Avançado",
             "time_limit": 300,
             "generator": generate_portal_graph,
         },
         13: {
-            "name": "Metrópole Abandonada",
+            "name": "🏙️ Kyoto Fantasma",
             "description": "Escape da cidade fantasma!",
             "difficulty": "Médio Avançado",
             "time_limit": 320,
             "generator": generate_abandoned_city_graph,
         },
         14: {
-            "name": "Labirinto Quântico",
+            "name": "🌀 Labirinto Zen",
             "description": "Resolva o puzzle da física quântica!",
             "difficulty": "Médio Avançado",
             "time_limit": 340,
             "generator": generate_quantum_maze_graph,
         },
         15: {
-            "name": "Arena Gladiadores",
+            "name": "⚔️ Arena do Bushido",
             "description": "Sobreviva na arena dos campeões!",
             "difficulty": "Médio Avançado",
             "time_limit": 360,
@@ -237,21 +237,21 @@ def get_level_config(level_id):
         
         # DIFÍCIL (16-20) - Máximo desafio
         16: {
-            "name": "Galáxia Perdida",
+            "name": "✨ Via Láctea Shinobi",
             "description": "Navegue pelos confins do universo!",
             "difficulty": "Difícil",
             "time_limit": 400,
             "generator": generate_galaxy_graph,
         },
         17: {
-            "name": "Matriz Arcana",
+            "name": "🌸 Santuário dos Ancestrais",
             "description": "Desvende os segredos da magia antiga!",
             "difficulty": "Difícil",
             "time_limit": 420,
             "generator": generate_arcane_matrix_graph,
         },
         18: {
-            "name": "Reator Nuclear",
+            "name": "🌙 Torre da Lua Negra",
             "description": "Evite o colapso do reator!",
             "difficulty": "Difícil",
             "time_limit": 440,
@@ -265,7 +265,7 @@ def get_level_config(level_id):
             "generator": generate_time_storm_graph,
         },
         20: {
-            "name": "Dimensão Alienígena",
+            "name": "👑 Ascensão do Mestre",
             "description": "Sobreviva na dimensão desconhecida!",
             "difficulty": "Difícil",
             "time_limit": 480,
