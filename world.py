@@ -19,6 +19,11 @@ class World:
             self.graph, self.start_node, self.end_node
         )
         
+        # Gerar inimigos a partir do nível médio (nível 4+)
+        self.enemies = set()
+        if level_id >= 4:
+            self._generate_enemies()
+        
         self.start_time = None
         self.end_time = None
         self.completed = False
@@ -70,3 +75,40 @@ class World:
             "num_nodes": self.graph.number_of_nodes(),
             "num_edges": self.graph.number_of_edges(),
         }
+    
+    def _generate_enemies(self):
+        """Gera inimigos em nós estratégicos"""
+        import random
+        
+        # Obter todos os nós exceto início e fim
+        all_nodes = list(self.graph.nodes())
+        available_nodes = [n for n in all_nodes if n != self.start_node and n != self.end_node]
+        
+        if not available_nodes:
+            return
+            
+        # Número de inimigos baseado no nível (mais inimigos em níveis avançados)
+        if self.level_id < 8:  # Níveis médios (4-7)
+            num_enemies = random.randint(1, 2)
+        elif self.level_id < 15:  # Níveis difíceis (8-14)
+            num_enemies = random.randint(2, 3)
+        else:  # Níveis extremos (15+)
+            num_enemies = random.randint(3, 4)
+        
+        # Limitar o número de inimigos ao número de nós disponíveis
+        num_enemies = min(num_enemies, len(available_nodes))
+        
+        # Selecionar nós aleatórios para colocar inimigos
+        enemy_nodes = random.sample(available_nodes, num_enemies)
+        self.enemies = set(enemy_nodes)
+        
+        print(f"🧌 Inimigos gerados no nível {self.level_id}: {list(self.enemies)}")
+    
+    def has_enemy(self, node_id):
+        """Verifica se um nó tem inimigo"""
+        return node_id in self.enemies
+    
+    def remove_enemy(self, node_id):
+        """Remove um inimigo de um nó (quando derrotado)"""
+        if node_id in self.enemies:
+            self.enemies.remove(node_id)

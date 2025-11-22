@@ -47,6 +47,9 @@ class Visualizer:
         # Carregar imagens de estrelas
         self.load_star_images()
         
+        # Carregar imagens de inimigos
+        self.load_enemy_images()
+        
         # Sistema de som ninja
         self.load_ninja_sounds()
         
@@ -260,6 +263,9 @@ class Visualizer:
         
         # Desenha nós com efeitos visuais
         self._draw_nodes(world, player, node_positions, clicked_nodes, hovered_node)
+        
+        # Desenha inimigos (se houver)
+        self._draw_enemies(world, node_positions)
         
         # Desenha indicadores direcionais
         self._draw_directional_indicators(world, player, node_positions)
@@ -712,6 +718,9 @@ class Visualizer:
         # Vidas
         lives_text = self.font_small.render(f"❤️ Vidas: {player.lives}", True, (255, 255, 255))
         self.screen.blit(lives_text, (self.width - 120, y_pos + 20))
+        
+        # Barra de vida do jogador
+        self._draw_health_bar(player, y_pos - 30)
         
         # Controles - linha 1
         controls_line1 = self.font_small.render("WASD: Direções | ESPAÇO: Caminho | R: Reiniciar | ESC: Menu", True, (255, 255, 255))
@@ -1517,6 +1526,23 @@ class Visualizer:
             print(f"❌ Erro ao carregar imagens de estrelas: {e}")
             self.star_images = {}
     
+    def load_enemy_images(self):
+        """Carrega as imagens dos inimigos"""
+        try:
+            import os
+            oni_path = "images/enemy/oni.png"
+            if os.path.exists(oni_path):
+                self.oni_image = pygame.image.load(oni_path).convert_alpha()
+                # Redimensionar para tamanho adequado (60x60 pixels)
+                self.oni_image = pygame.transform.scale(self.oni_image, (60, 60))
+                print(f"✅ Imagem do Oni carregada: {oni_path}")
+            else:
+                print(f"⚠️ Imagem do Oni não encontrada: {oni_path}")
+                self.oni_image = None
+        except Exception as e:
+            print(f"❌ Erro ao carregar imagem do Oni: {e}")
+            self.oni_image = None
+    
     def load_ninja_sounds(self):
         """Carrega os sons ninja"""
         try:
@@ -1581,6 +1607,18 @@ class Visualizer:
                 # Reproduz o som de vitória
                 self.victory_sound.play()
                 print("🎵 Som de vitória tocando!")
+        except Exception as e:
+            # Falha silenciosa para não interromper o jogo
+            pass
+    
+    def play_damage_sound(self):
+        """Reproduz som de dano (usando o whoosh em volume mais baixo)"""
+        try:
+            if hasattr(self, 'whoosh_sound') and self.whoosh_sound:
+                # Cria uma cópia temporária do som com volume reduzido para efeito de dano
+                self.whoosh_sound.set_volume(0.3)  # Volume mais baixo para efeito de dano
+                self.whoosh_sound.play()
+                print("💥 Som de dano tocando!")
         except Exception as e:
             # Falha silenciosa para não interromper o jogo
             pass
@@ -1704,6 +1742,39 @@ class Visualizer:
             # Aplicar diretamente na tela
             self.screen.blit(overlay, (0, 0))
     
+    def _draw_health_bar(self, player, y_pos):
+        """Desenha a barra de vida do jogador"""
+        # Posição e dimensões da barra
+        bar_width = 200
+        bar_height = 20
+        bar_x = self.width - bar_width - 20
+        bar_y = y_pos
+        
+        # Calcula porcentagem de vida
+        health_percentage = player.health / player.max_health
+        
+        # Borda da barra
+        pygame.draw.rect(self.screen, (255, 255, 255), (bar_x - 2, bar_y - 2, bar_width + 4, bar_height + 4), 2)
+        
+        # Fundo da barra (vermelho escuro)
+        pygame.draw.rect(self.screen, (100, 20, 20), (bar_x, bar_y, bar_width, bar_height))
+        
+        # Barra de vida (verde para saudável, amarelo para médio, vermelho para crítico)
+        if health_percentage > 0.6:
+            health_color = (50, 200, 50)  # Verde
+        elif health_percentage > 0.3:
+            health_color = (200, 200, 50)  # Amarelo
+        else:
+            health_color = (200, 50, 50)  # Vermelho
+            
+        health_width = int(bar_width * health_percentage)
+        if health_width > 0:
+            pygame.draw.rect(self.screen, health_color, (bar_x, bar_y, health_width, bar_height))
+        
+        # Texto da vida
+        health_text = self.font_small.render(f"❤️ {player.health}/{player.max_health}", True, (255, 255, 255))
+        self.screen.blit(health_text, (bar_x - 80, bar_y))
+    
     def draw_ninja_background(self):
         """Desenha o fundo ninja com efeitos"""
         if hasattr(self, 'background_image') and self.background_image:
@@ -1739,3 +1810,31 @@ class Visualizer:
         else:
             # Fallback para desenho manual se imagens não estiverem disponíveis
             self._draw_stars_display(stars_earned, 0, compact=True)
+    
+    def _draw_enemies(self, world, node_positions):
+        """Desenha inimigos nos nós que os possuem"""
+        if not hasattr(world, 'enemies') or not world.enemies:
+            return
+            
+        if not hasattr(self, 'oni_image') or not self.oni_image:
+            return
+            
+        for node_id in world.enemies:
+            if node_id in node_positions:
+                node_pos = node_positions[node_id]
+                # Posicionar o oni ligeiramente acima do nó
+                oni_x = node_pos[0] - 30  # Centralizar horizontalmente
+                oni_y = node_pos[1] - 40  # Posicionar acima do nó
+                
+                # Desenhar uma sombra sutil atrás do oni
+                shadow_surf = pygame.Surface((60, 60), pygame.SRCALPHA)
+                shadow_surf.fill((0, 0, 0, 60))
+                self.screen.blit(shadow_surf, (oni_x + 3, oni_y + 3))
+                
+                # Desenhar o oni
+                self.screen.blit(self.oni_image, (oni_x, oni_y))
+                
+                # Adicionar efeito de brilho vermelho ao redor
+                red_glow = pygame.Surface((70, 70), pygame.SRCALPHA)
+                pygame.draw.circle(red_glow, (255, 0, 0, 30), (35, 35), 35)
+                self.screen.blit(red_glow, (oni_x - 5, oni_y - 5))

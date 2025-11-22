@@ -511,6 +511,11 @@ class Game:
         elif clicked_button == "main_menu":
             self.goto_menu_with_transition()
     
+    def handle_game_over(self):
+        """Gerencia quando o jogador morre"""
+        print("💀 Game Over - Transicionando para tela de fim de jogo...")
+        self.goto_game_over_with_transition()
+    
     def handle_game_over_click(self, pos):
         """Gerencia cliques na tela de game over"""
         # Coordenadas dos botões
@@ -627,6 +632,27 @@ class Game:
             # Animação completa
             self.player.move_to_node(self.move_to_node)
             self.is_moving = False
+            
+            # Verifica se há inimigo no nó de destino
+            if self.world.has_enemy(self.move_to_node):
+                print(f"⚔️ Encontrou um inimigo no nó {self.move_to_node}!")
+                
+                # Tocar som de dano
+                self.visualizer.play_damage_sound()
+                
+                # O jogador perde metade da vida
+                damage = self.player.max_health // 2
+                self.player.take_damage(damage)
+                print(f"💔 Você perdeu {damage} de vida! Vida atual: {self.player.health}/{self.player.max_health}")
+                
+                # Remove o inimigo após o encontro
+                self.world.remove_enemy(self.move_to_node)
+                
+                # Verifica se o jogador morreu
+                if self.player.health <= 0:
+                    print("💀 Você foi derrotado! Game Over!")
+                    self.handle_game_over()
+                    return
             
             # Verifica se chegou ao destino
             if self.move_to_node == self.world.end_node:
@@ -871,6 +897,12 @@ class Game:
             callback = lambda: self._execute_next_level()
             self.visualizer.start_fade_transition(callback)
     
+    def goto_game_over_with_transition(self):
+        """Vai para game over com transição fade"""
+        if not self.visualizer.is_transitioning:
+            callback = lambda: self._execute_goto_game_over()
+            self.visualizer.start_fade_transition(callback)
+    
     def _execute_start_level(self, level):
         """Executa o início do nível após transição"""
         self.start_level(level)
@@ -888,6 +920,11 @@ class Game:
             self.game_state = "menu"
         else:
             self.start_level(self.current_level)
+    
+    def _execute_goto_game_over(self):
+        """Executa ida para game over após transição"""
+        self.game_state = "game_over"
+        self.clicked_nodes = set()
     
     def load_video_background(self):
         """Carrega o vídeo de fundo para o menu"""
