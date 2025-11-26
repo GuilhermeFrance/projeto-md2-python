@@ -232,7 +232,7 @@ class Visualizer:
             self.current_run_left_frame = (self.current_run_left_frame + 1) % len(self.run_left_sprites)
             self.run_left_animation_timer = current_time
         
-    def draw_graph(self, world, player, clicked_nodes=None, show_optimal_path=False, hovered_node=None, animated_player_pos=None):
+    def draw_graph(self, world, player, clicked_nodes=None, show_optimal_path=False, hovered_node=None, animated_player_pos=None, game_instance=None):
         """Desenha o grafo na tela com visual profissional"""
         # Atualiza animação
         self.animation_time += 0.1
@@ -265,13 +265,13 @@ class Visualizer:
         self._draw_nodes(world, player, node_positions, clicked_nodes, hovered_node)
         
         # Desenha inimigos (se houver)
-        self._draw_enemies(world, node_positions)
+        self._draw_enemies(world, node_positions, game_instance)
         
         # Desenha indicadores direcionais
         self._draw_directional_indicators(world, player, node_positions)
         
         # Desenha o personagem do jogador
-        self._draw_player_character(player, node_positions, animated_player_pos)
+        self._draw_player_character(player, node_positions, animated_player_pos, game_instance)
         
         # Desenha UI (HUD) profissional
         self._draw_professional_hud(world, player)
@@ -483,10 +483,25 @@ class Visualizer:
                 text_rect = node_text.get_rect(center=pos)
                 self.screen.blit(node_text, text_rect)
     
-    def _draw_player_character(self, player, node_positions, animated_pos=None):
+    def _draw_player_character(self, player, node_positions, animated_pos=None, game_instance=None):
         """Desenha o personagem do jogador usando sprites ou desenho vetorial"""
         # Use posição animada se disponível, senão posição do nó atual
         pos = animated_pos if animated_pos else node_positions[player.current_node]
+        
+        # Verificar se está em combate
+        if (game_instance and hasattr(game_instance, 'combat_state') and 
+            game_instance.combat_state == "player_attack" and 
+            hasattr(self, 'player_attack_sprites') and self.player_attack_sprites):
+            # Jogador atacando - usar sprites de ataque (velocidade aumentada)
+            import time
+            frame_index = int((time.time() - game_instance.combat_start_time) * 15) % len(self.player_attack_sprites)
+            attack_sprite = self.player_attack_sprites[frame_index]
+            
+            # Desenhar sprite de ataque diretamente (sem backgrounds transparentes)
+            sprite_rect = attack_sprite.get_rect(center=pos)
+            self.screen.blit(attack_sprite, sprite_rect)
+            
+            return  # Sair cedo para não desenhar sprites normais
         
         # Determina se está se movendo
         is_moving = animated_pos is not None
@@ -1527,21 +1542,68 @@ class Visualizer:
             self.star_images = {}
     
     def load_enemy_images(self):
-        """Carrega as imagens dos inimigos"""
+        """Carrega sprites dos inimigos e animações de combate"""
         try:
             import os
-            oni_path = "images/enemy/oni.png"
-            if os.path.exists(oni_path):
-                self.oni_image = pygame.image.load(oni_path).convert_alpha()
-                # Redimensionar para tamanho adequado (60x60 pixels)
-                self.oni_image = pygame.transform.scale(self.oni_image, (60, 60))
-                print(f"✅ Imagem do Oni carregada: {oni_path}")
-            else:
-                print(f"⚠️ Imagem do Oni não encontrada: {oni_path}")
-                self.oni_image = None
+            
+            # Carrega sprites idle do inimigo
+            self.enemy_idle_sprites = []
+            idle_dir = os.path.join("images", "enemy", "idle")
+            if os.path.exists(idle_dir):
+                idle_files = [f for f in os.listdir(idle_dir) if f.endswith('.png')]
+                idle_files.sort()  # Ordena para sequência correta
+                for file in idle_files:
+                    sprite_path = os.path.join(idle_dir, file)
+                    sprite = pygame.image.load(sprite_path).convert_alpha()
+                    sprite = pygame.transform.scale(sprite, (80, 80))
+                    self.enemy_idle_sprites.append(sprite)
+                print(f"😴 {len(self.enemy_idle_sprites)} sprites idle do inimigo carregados")
+            
+            # Carrega sprites de ataque do inimigo
+            self.enemy_attack_sprites = []
+            attack_dir = os.path.join("images", "enemy", "attack")
+            if os.path.exists(attack_dir):
+                attack_files = [f for f in os.listdir(attack_dir) if f.endswith('.png')]
+                attack_files.sort()  # Ordena para sequência correta
+                for file in attack_files:
+                    sprite_path = os.path.join(attack_dir, file)
+                    sprite = pygame.image.load(sprite_path).convert_alpha()
+                    sprite = pygame.transform.scale(sprite, (80, 80))
+                    self.enemy_attack_sprites.append(sprite)
+                print(f"⚔️ {len(self.enemy_attack_sprites)} sprites de ataque do inimigo carregados")
+            
+            # Carrega sprites de morte do inimigo
+            self.enemy_dead_sprites = []
+            dead_dir = os.path.join("images", "enemy", "dead")
+            if os.path.exists(dead_dir):
+                dead_files = [f for f in os.listdir(dead_dir) if f.endswith('.png')]
+                dead_files.sort()  # Ordena para sequência correta
+                for file in dead_files:
+                    sprite_path = os.path.join(dead_dir, file)
+                    sprite = pygame.image.load(sprite_path).convert_alpha()
+                    sprite = pygame.transform.scale(sprite, (80, 80))
+                    self.enemy_dead_sprites.append(sprite)
+                print(f"💀 {len(self.enemy_dead_sprites)} sprites de morte do inimigo carregados")
+            
+            # Carrega sprites de ataque do jogador
+            self.player_attack_sprites = []
+            attack_dir = os.path.join("images", "person_attack")
+            if os.path.exists(attack_dir):
+                attack_files = [f for f in os.listdir(attack_dir) if f.endswith('.png')]
+                attack_files.sort()  # Ordena para sequência correta
+                for file in attack_files:
+                    sprite_path = os.path.join(attack_dir, file)
+                    sprite = pygame.image.load(sprite_path).convert_alpha()
+                    sprite = pygame.transform.scale(sprite, (120, 120))  # Mesmo tamanho do jogador
+                    self.player_attack_sprites.append(sprite)
+                print(f"🗡️ {len(self.player_attack_sprites)} sprites de ataque do jogador carregados")
+                    
         except Exception as e:
-            print(f"❌ Erro ao carregar imagem do Oni: {e}")
-            self.oni_image = None
+            print(f"❌ Erro ao carregar sprites de combate: {e}")
+            self.enemy_idle_sprites = []
+            self.enemy_attack_sprites = []
+            self.enemy_dead_sprites = []
+            self.player_attack_sprites = []
     
     def load_ninja_sounds(self):
         """Carrega os sons ninja"""
@@ -1811,30 +1873,50 @@ class Visualizer:
             # Fallback para desenho manual se imagens não estiverem disponíveis
             self._draw_stars_display(stars_earned, 0, compact=True)
     
-    def _draw_enemies(self, world, node_positions):
-        """Desenha inimigos nos nós que os possuem"""
+    def _draw_enemies(self, world, node_positions, game_instance=None):
+        """Desenha inimigos nos nós que os possuem usando sprites da pasta enemy/idle"""
         if not hasattr(world, 'enemies') or not world.enemies:
             return
             
-        if not hasattr(self, 'oni_image') or not self.oni_image:
-            return
-            
+        import time
+        
         for node_id in world.enemies:
             if node_id in node_positions:
                 node_pos = node_positions[node_id]
-                # Posicionar o oni ligeiramente acima do nó
-                oni_x = node_pos[0] - 30  # Centralizar horizontalmente
-                oni_y = node_pos[1] - 40  # Posicionar acima do nó
                 
-                # Desenhar uma sombra sutil atrás do oni
-                shadow_surf = pygame.Surface((60, 60), pygame.SRCALPHA)
-                shadow_surf.fill((0, 0, 0, 60))
-                self.screen.blit(shadow_surf, (oni_x + 3, oni_y + 3))
+                # Posição para desenhar o inimigo (centralizado no nó)
+                enemy_x = node_pos[0] - 40  # Centralizar (80px / 2)
+                enemy_y = node_pos[1] - 50  # Posicionar acima do nó
                 
-                # Desenhar o oni
-                self.screen.blit(self.oni_image, (oni_x, oni_y))
+                # Determinar qual sprite usar baseado no estado de combate
+                sprite_to_draw = None
                 
-                # Adicionar efeito de brilho vermelho ao redor
-                red_glow = pygame.Surface((70, 70), pygame.SRCALPHA)
-                pygame.draw.circle(red_glow, (255, 0, 0, 30), (35, 35), 35)
-                self.screen.blit(red_glow, (oni_x - 5, oni_y - 5))
+                # Verificar se está em combate neste nó
+                if (game_instance and hasattr(game_instance, 'combat_state') and 
+                    hasattr(game_instance, 'combat_node') and game_instance.combat_node == node_id):
+                    
+                    if game_instance.combat_state == "enemy_attack":
+                        # Inimigo atacando - usar sprites de ataque (velocidade aumentada)
+                        if hasattr(self, 'enemy_attack_sprites') and self.enemy_attack_sprites:
+                            frame_index = int((time.time() - game_instance.combat_start_time) * 15) % len(self.enemy_attack_sprites)
+                            sprite_to_draw = self.enemy_attack_sprites[frame_index]
+                    
+                    elif game_instance.combat_state == "enemy_dead":
+                        # Inimigo morrendo - usar sprites de morte (velocidade aumentada)
+                        if hasattr(self, 'enemy_dead_sprites') and self.enemy_dead_sprites:
+                            frame_index = min(int((time.time() - game_instance.combat_start_time) * 15), len(self.enemy_dead_sprites) - 1)
+                            sprite_to_draw = self.enemy_dead_sprites[frame_index]
+                
+                # Estado padrão: usar animação idle da pasta enemy/idle
+                if sprite_to_draw is None:
+                    if hasattr(self, 'enemy_idle_sprites') and self.enemy_idle_sprites:
+                        # Animação idle contínua (8 FPS para movimento mais fluido)
+                        frame_index = int(time.time() * 8) % len(self.enemy_idle_sprites)
+                        sprite_to_draw = self.enemy_idle_sprites[frame_index]
+                
+                # Desenhar o sprite do inimigo diretamente (sem backgrounds transparentes)
+                if sprite_to_draw:
+                    self.screen.blit(sprite_to_draw, (enemy_x, enemy_y))
+                else:
+                    # Debug: se não há sprites carregados
+                    print(f"⚠️ Nenhum sprite de inimigo disponível para o nó {node_id}")

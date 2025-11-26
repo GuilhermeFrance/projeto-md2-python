@@ -65,6 +65,14 @@ class Game:
         self.move_confirmation_time = 0
         self.confirmation_timeout = 2.0  # Segundos para confirmar movimento
         
+        # Sistema de combate
+        self.combat_state = None  # None, "player_attack", "enemy_attack", "enemy_dead"
+        self.combat_start_time = 0
+        self.combat_duration = 1.5  # Duração da animação de combate
+        self.combat_node = None
+        self.combat_enemy_health = 100  # Vida do inimigo
+        self.dead_enemies = set()  # Inimigos mortos (para não redesenhar)
+        
     def handle_events(self):
         """Gerencia os eventos do jogo"""
         # Atualizar posição do mouse constantemente
@@ -76,6 +84,7 @@ class Game:
         # Atualizar animação de movimento
         if self.game_state == "playing":
             self.update_movement_animation()
+            self.update_combat_animation()
         
         # Detectar combinações de teclas para movimento diagonal
         if self.game_state == "playing":
@@ -511,6 +520,50 @@ class Game:
         elif clicked_button == "main_menu":
             self.goto_menu_with_transition()
     
+    def start_combat(self, enemy_node):
+        """Inicia o sistema de combate"""
+        self.combat_node = enemy_node
+        self.combat_start_time = time.time()
+        self.combat_enemy_health = 100
+        
+        # Determina o vencedor baseado na vida do jogador
+        if self.player.health > 50:  # Jogador tem vida suficiente
+            print("🗡️ Jogador ataca primeiro!")
+            self.combat_state = "player_attack"
+        else:
+            print("⚔️ Inimigo ataca primeiro!")
+            self.combat_state = "enemy_attack"
+    
+    def update_combat_animation(self):
+        """Atualiza a animação de combate"""
+        if self.combat_state is None:
+            return
+            
+        elapsed = time.time() - self.combat_start_time
+        
+        if elapsed >= self.combat_duration:
+            # Animação de combate terminou
+            if self.combat_state == "player_attack":
+                # Jogador venceu - inimigo morre
+                print("🏆 Jogador venceu! Inimigo derrotado!")
+                self.dead_enemies.add(self.combat_node)
+                self.world.remove_enemy(self.combat_node)
+                self.combat_state = "enemy_dead"
+                self.combat_start_time = time.time()  # Reinicia timer para animação de morte
+                
+            elif self.combat_state == "enemy_attack":
+                # Inimigo venceu - jogador morre
+                print("💀 Inimigo venceu! Jogador derrotado!")
+                self.player.health = 0
+                self.combat_state = None
+                self.handle_game_over()
+                
+            elif self.combat_state == "enemy_dead":
+                # Animação de morte terminou
+                print("✅ Combate finalizado - continuando movimento")
+                self.combat_state = None
+                self.combat_node = None
+    
     def handle_game_over(self):
         """Gerencia quando o jogador morre"""
         print("💀 Game Over - Transicionando para tela de fim de jogo...")
@@ -636,23 +689,8 @@ class Game:
             # Verifica se há inimigo no nó de destino
             if self.world.has_enemy(self.move_to_node):
                 print(f"⚔️ Encontrou um inimigo no nó {self.move_to_node}!")
-                
-                # Tocar som de dano
-                self.visualizer.play_damage_sound()
-                
-                # O jogador perde metade da vida
-                damage = self.player.max_health // 2
-                self.player.take_damage(damage)
-                print(f"💔 Você perdeu {damage} de vida! Vida atual: {self.player.health}/{self.player.max_health}")
-                
-                # Remove o inimigo após o encontro
-                self.world.remove_enemy(self.move_to_node)
-                
-                # Verifica se o jogador morreu
-                if self.player.health <= 0:
-                    print("💀 Você foi derrotado! Game Over!")
-                    self.handle_game_over()
-                    return
+                self.start_combat(self.move_to_node)
+                return
             
             # Verifica se chegou ao destino
             if self.move_to_node == self.world.end_node:
@@ -831,7 +869,7 @@ class Game:
             # Armazena direção no visualizer para uso na função de desenho
             if hasattr(self.visualizer, 'current_movement_direction'):
                 self.visualizer.current_movement_direction = movement_direction
-            self.visualizer.draw_graph(self.world, self.player, self.clicked_nodes, self.show_optimal_path, self.hovered_node, animated_pos)
+            self.visualizer.draw_graph(self.world, self.player, self.clicked_nodes, self.show_optimal_path, self.hovered_node, animated_pos, self)
         
         elif self.game_state == "level_complete":
             self.visualizer.draw_level_complete(self.level_results)
