@@ -87,7 +87,7 @@ class Player:
         elif efficiency_percent >= 60:
             return 1  # Razoavel (60%+)
         else:
-            return 0  # Precisa melhorar (<60%)
+            return 0  # 0 estrelas (<60%)
     
     def update_level_stars(self, level_id, stars):
         """Atualiza as estrelas de um nível (mantém o melhor resultado)"""

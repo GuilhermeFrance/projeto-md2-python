@@ -48,6 +48,15 @@ class Game:
         self.game_state = "menu"  # menu, playing, level_complete, game_over
         self.show_optimal_path = False
         self.clicked_nodes = set()
+        
+        # Sistema de progresso de estrelas
+        self.stars_earned = {}  # {level: stars_earned}
+        self.max_level = 20  # Total de níveis no jogo
+        self.total_possible_stars = self.max_level * 3  # 3 estrelas por nível
+        
+        # Sistema de combate
+        self.enemies_fought = 0  # Contador de inimigos enfrentados no nível atual
+        self.load_star_progress()
         self.hovered_node = None  # Nó sobre o qual o mouse está
         self.mouse_pos = (0, 0)  # Posição atual do mouse
         self.last_move_time = 0  # Para controlar o debounce de movimento
@@ -68,9 +77,11 @@ class Game:
         # Sistema de combate
         self.combat_state = None  # None, "player_attack", "enemy_attack", "enemy_dead"
         self.combat_start_time = 0
-        self.combat_duration = 1.5  # Duração da animação de combate
+        self.combat_duration = 1.0  # Duração do combate simultâneo em segundos
         self.combat_node = None
         self.combat_enemy_health = 100  # Vida do inimigo
+        self.combat_turn = 0  # Turno atual do combate
+        self.combat_max_turns = 4  # Máximo de turnos (2 do jogador + 2 do inimigo)
         self.dead_enemies = set()  # Inimigos mortos (para não redesenhar)
         
     def handle_events(self):
@@ -186,6 +197,11 @@ class Game:
                 pos = pygame.mouse.get_pos()
                 
                 if self.game_state == "playing":
+                    # Bloquear movimento durante combate
+                    if hasattr(self, 'combat_state') and self.combat_state in ["simultaneous_attack", "enemy_dead"]:
+                        print("⚡ Movimento bloqueado durante combate!")
+                        return
+                        
                     clicked_node = self.get_clicked_node(pos)
                     if clicked_node is not None:
                         # Verifica se é um movimento válido antes de tentar
@@ -207,6 +223,9 @@ class Game:
                 
                 elif self.game_state == "level_complete":
                     self.handle_level_complete_click(pos)
+                
+                elif self.game_state == "player_dead":
+                    self.handle_player_death_click(pos)
                 
                 elif self.game_state == "game_over":
                     self.handle_game_over_click(pos)
@@ -484,6 +503,12 @@ class Game:
         self.player.reset_level(self.world.start_node)
         self.world.start_level()
         self.game_state = "playing"
+        
+        # Resetar contador de inimigos enfrentados
+        self.enemies_fought = 0
+        
+        # Salvar checkpoint da fase atual (só após confirmar acesso)
+        self.save_star_progress()
         self.show_optimal_path = False
         self.clicked_nodes = set()
         self.last_move_time = 0  # Reset do cooldown de movimento
@@ -520,47 +545,156 @@ class Game:
         elif clicked_button == "main_menu":
             self.goto_menu_with_transition()
     
+    def handle_player_death_click(self, pos):
+        """Gerencia cliques na tela de morte do jogador"""
+        button_clicked = self.visualizer.handle_death_button_click(pos)
+        
+        if button_clicked == "retry_level":
+            # Reiniciar o nível atual
+            self.start_level_with_transition(self.current_level)
+        elif button_clicked == "main_menu_death":
+            # Voltar ao menu principal
+            self.goto_menu_with_transition()
+    
     def start_combat(self, enemy_node):
-        """Inicia o sistema de combate"""
+        """Inicia o sistema de combate - verifica vida do jogador"""
         self.combat_node = enemy_node
         self.combat_start_time = time.time()
-        self.combat_enemy_health = 100
         
-        # Determina o vencedor baseado na vida do jogador
-        if self.player.health > 50:  # Jogador tem vida suficiente
-            print("🗡️ Jogador ataca primeiro!")
-            self.combat_state = "player_attack"
-        else:
-            print("⚔️ Inimigo ataca primeiro!")
-            self.combat_state = "enemy_attack"
+        print(f"⚔️ Encontrou inimigo! Vida do jogador: {self.player.health}")
+        print(f"🔢 Inimigos enfrentados anteriormente: {self.enemies_fought}")
+        
+        # Se já enfrentou um inimigo ou tem pouca vida, morre instantaneamente
+        if self.enemies_fought >= 1 or self.player.health < 50:
+            print("💀 Segundo inimigo ou vida baixa! Morte instantânea!")
+            self.player.health = 0
+            self.handle_player_death()
+            return
+        
+        # Incrementar contador de inimigos enfrentados
+        self.enemies_fought += 1
+        
+        # Iniciar combate simultâneo se jogador tem vida suficiente
+        self.combat_enemy_health = 100
+        self.combat_player_initial_health = self.player.health
+        
+        print(f"⚔️ COMBATE SIMULTÂNEO INICIADO!")
+        print(f"🧙 Vida do jogador: {self.player.health}")
+        print(f"👹 Vida do inimigo: {self.combat_enemy_health}")
+        
+        # Combate simultâneo - ambos atacam ao mesmo tempo
+        self.combat_state = "simultaneous_attack"
+    
+    def handle_player_death(self):
+        """Lida com a morte do jogador"""
+        print("☠️ JOGADOR MORREU!")
+        self.game_state = "player_dead"
+        self.death_time = time.time()  # Para cronometrar a tela de morte
     
     def update_combat_animation(self):
-        """Atualiza a animação de combate"""
+        """Atualiza a animação de combate simultâneo"""
         if self.combat_state is None:
             return
             
         elapsed = time.time() - self.combat_start_time
         
         if elapsed >= self.combat_duration:
-            # Animação de combate terminou
-            if self.combat_state == "player_attack":
-                # Jogador venceu - inimigo morre
-                print("🏆 Jogador venceu! Inimigo derrotado!")
-                self.dead_enemies.add(self.combat_node)
-                self.world.remove_enemy(self.combat_node)
-                self.combat_state = "enemy_dead"
-                self.combat_start_time = time.time()  # Reinicia timer para animação de morte
+            if self.combat_state == "simultaneous_attack":
+                # Combate simultâneo terminou - aplicar danos
+                self._apply_combat_damage()
+                self._resolve_combat()
+                    
+            # Estado enemy_dead removido - inimigos desaparecem imediatamente
                 
-            elif self.combat_state == "enemy_attack":
-                # Inimigo venceu - jogador morre
-                print("💀 Inimigo venceu! Jogador derrotado!")
-                self.player.health = 0
+    def _apply_combat_damage(self):
+        """Aplica danos durante o combate simultâneo"""
+        # Jogador sempre perde METADE da vida ao passar por vértice com inimigo
+        player_damage = self.combat_player_initial_health // 2  # Metade da vida
+        
+        # Se jogador tem mais da metade da vida máxima, mata o inimigo
+        if self.combat_player_initial_health > (self.player.max_health // 2):
+            enemy_damage = 100  # Inimigo morre
+            print(f"⚔️ Jogador tem {self.combat_player_initial_health} vida! Perde metade ({player_damage}) mas mata o inimigo!")
+        else:
+            # Jogador tem metade ou menos da vida máxima - morre
+            player_damage = self.combat_player_initial_health  # Jogador morre
+            enemy_damage = 50
+            print(f"💀 Jogador tem apenas {self.combat_player_initial_health} vida! Não consegue derrotar o inimigo!")
+        
+        # Aplicar danos
+        self.player.health = max(0, self.player.health - player_damage)
+        self.combat_enemy_health = max(0, self.combat_enemy_health - enemy_damage)
+        
+        print(f"💥 Danos aplicados:")
+        print(f"🧙 Jogador: {self.combat_player_initial_health} → {self.player.health} (-{player_damage})")
+        print(f"👹 Inimigo: 100 → {self.combat_enemy_health} (-{enemy_damage})")
+                
+    def _resolve_combat(self):
+        """Resolve o resultado final do combate"""
+        print(f"🎯 Resolvendo combate - Vida restante: {self.player.health}")
+        
+        # Determinar vencedor baseado em quem sobreviveu
+        if self.combat_enemy_health <= 0 and self.player.health > 0:
+            # Jogador venceu - inimigo desaparece imediatamente
+            print("🏆 VITÓRIA! Jogador derrotou o inimigo!")
+            self.dead_enemies.add(self.combat_node)
+            print(f"🗡️ Removendo inimigo do nó {self.combat_node}...")
+            self.world.remove_enemy(self.combat_node)
+            print(f"📋 Inimigos restantes: {list(self.world.enemies)}")
+            # Finalizar combate imediatamente - sem animação de morte
+            self.combat_state = None
+            self.combat_node = None
+            print("✅ Combate finalizado - inimigo removido!")
+            
+        elif self.player.health <= 0:
+            # Jogador morreu
+            print("💀 DERROTA! Jogador foi derrotado!")
+            self.player.lives -= 1
+            
+            if self.player.lives <= 0:
+                print("☠️ Game Over - Todas as vidas perdidas!")
                 self.combat_state = None
                 self.handle_game_over()
+            else:
+                print(f"💔 Vida perdida! Vidas restantes: {self.player.lives}")
+                # Resetar jogador para posição inicial do nível
+                self.player.current_node = self.world.start_node
+                self.player.health = self.player.max_health  # Restaurar vida
+                self.combat_state = None
+                self.combat_node = None
+        
+        elif self.combat_enemy_health <= 0:
+            # Ambos morreram, mas inimigo morreu primeiro
+            print("🏆 Vitória por pouco! Ambos feridos, mas inimigo caiu primeiro!")
+            self.dead_enemies.add(self.combat_node)
+            print(f"🗡️ Removendo inimigo do nó {self.combat_node}...")
+            self.world.remove_enemy(self.combat_node)
+            print(f"📋 Inimigos restantes: {list(self.world.enemies)}")
+            # Finalizar combate imediatamente
+            self.combat_state = None
+            self.combat_node = None
+            
+        else:
+            # Ambos sobreviveram ou inimigo venceu - jogador deve morrer ou fugir
+            if self.combat_enemy_health > 0:
+                print("💀 Inimigo ainda vivo! Jogador foi derrotado!")
+                self.player.health = 0  # Forçar morte do jogador
+                self.player.lives -= 1
                 
-            elif self.combat_state == "enemy_dead":
-                # Animação de morte terminou
-                print("✅ Combate finalizado - continuando movimento")
+                if self.player.lives <= 0:
+                    print("☠️ Game Over - Todas as vidas perdidas!")
+                    self.combat_state = None
+                    self.handle_game_over()
+                else:
+                    print(f"💔 Vida perdida! Vidas restantes: {self.player.lives}")
+                    # Resetar jogador para posição inicial do nível
+                    self.player.current_node = self.world.start_node
+                    self.player.health = self.player.max_health
+                    self.combat_state = None
+                    self.combat_node = None
+            else:
+                # Caso impossível, mas tratando como empate
+                print("🤝 Situação inesperada resolvida.")
                 self.combat_state = None
                 self.combat_node = None
     
@@ -593,8 +727,9 @@ class Game:
         if button_clicked == 'newgame':
             self.start_level_with_transition(1)
         elif button_clicked == 'continue':
-            if self.player.level > 0:
-                self.start_level_with_transition(self.player.level)
+            # Usar o checkpoint salvo (current_level já foi validado ao carregar)
+            if self.current_level > 0:
+                self.start_level_with_transition(self.current_level)
         elif button_clicked == 'exit':
             return False  # Indica para sair do jogo
             
@@ -788,6 +923,13 @@ class Game:
         # Atualiza as estrelas do jogador para este nível
         self.player.update_level_stars(self.current_level, stars)
         
+        # Salvar progresso de estrelas
+        current_stars = self.stars_earned.get(self.current_level, 0)
+        if stars > current_stars:
+            self.stars_earned[self.current_level] = stars
+            self.save_star_progress()
+            print(f"⭐ Novo recorde de estrelas no nível {self.current_level}: {stars} estrelas!")
+        
         # Adiciona informações de estrelas aos resultados
         results["stars_earned"] = stars
         results["previous_stars"] = self.player.level_stars.get(self.current_level, 0)
@@ -861,6 +1003,8 @@ class Game:
             # Depois desenhar o menu por cima
             levels_completed = self.current_level - 1
             self.visualizer.draw_menu(levels_completed, self.player)
+            # Desenhar contador de estrelas
+            self.draw_star_counter()
         
         elif self.game_state == "playing":
             # Obtém posição animada e direção do jogador se estiver se movendo
@@ -873,6 +1017,9 @@ class Game:
         
         elif self.game_state == "level_complete":
             self.visualizer.draw_level_complete(self.level_results)
+        
+        elif self.game_state == "player_dead":
+            self.visualizer.draw_player_death()
         
         elif self.game_state == "game_over":
             self.visualizer.draw_game_over(self.player)
@@ -958,6 +1105,8 @@ class Game:
             self.game_state = "menu"
         else:
             self.start_level(self.current_level)
+            # Salvar progresso após avançar de nível
+            self.save_star_progress()
     
     def _execute_goto_game_over(self):
         """Executa ida para game over após transição"""
@@ -986,6 +1135,71 @@ class Game:
             print(f"❌ Erro ao carregar vídeo: {e}")
             self.video_cap = None
     
+    def load_star_progress(self):
+        """Carrega o progresso de estrelas do arquivo"""
+        try:
+            import json
+            import os
+            
+            save_file = "star_progress.json"
+            if os.path.exists(save_file):
+                with open(save_file, 'r') as f:
+                    data = json.load(f)
+                    self.stars_earned = {int(k): v for k, v in data.get('stars_earned', {}).items()}
+                    saved_level = data.get('current_level', 1)
+                    
+                    # Calcular o maior nível acessível baseado nas estrelas
+                    highest_accessible = self.get_highest_accessible_level()
+                    
+                    # Usar o menor entre: nível salvo ou maior acessível
+                    # Isso garante que não tente acessar nível sem estrelas suficientes
+                    self.current_level = min(saved_level, highest_accessible)
+                        
+                print(f"⭐ Progresso carregado: {self.get_total_stars_earned()}/{self.total_possible_stars} estrelas")
+                print(f"📍 Checkpoint: Nível {self.current_level}")
+            else:
+                print("🎮 Novo jogo - progresso zerado")
+        except Exception as e:
+            print(f"⚠️ Erro ao carregar progresso: {e}")
+            self.stars_earned = {}
+    
+    def save_star_progress(self):
+        """Salva o progresso de estrelas no arquivo"""
+        try:
+            import json
+            
+            data = {
+                'stars_earned': self.stars_earned,
+                'current_level': self.current_level
+            }
+            
+            with open("star_progress.json", 'w') as f:
+                json.dump(data, f)
+            print(f"💾 Progresso salvo: {self.get_total_stars_earned()}/{self.total_possible_stars} estrelas")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar progresso: {e}")
+    
+    def get_total_stars_earned(self):
+        """Retorna o total de estrelas conquistadas"""
+        return sum(self.stars_earned.values())
+    
+    def get_highest_accessible_level(self):
+        """Encontra o nível mais alto que o jogador pode acessar"""
+        # Sempre pode acessar o nível 1
+        highest_level = 1
+        
+        # Verifica níveis de 2 a 20
+        for level in range(2, 21):
+            previous_level = level - 1
+            stars_in_previous = self.stars_earned.get(previous_level, 0)
+            # Verifica se tem pelo menos 2 estrelas no nível anterior
+            if stars_in_previous >= 2:
+                highest_level = level
+            else:
+                break  # Para no primeiro nível inacessível
+                
+        return highest_level
+
     def update_video_background(self):
         """Atualiza o frame do vídeo de fundo"""
         if self.video_cap is None:
@@ -1009,6 +1223,55 @@ class Game:
         except Exception as e:
             print(f"❌ Erro ao atualizar vídeo: {e}")
     
+    def draw_star_counter(self):
+        """Desenha o contador de estrelas no menu principal"""
+        total_stars = self.get_total_stars_earned()
+        
+        # Posição no canto superior direito
+        star_x = self.visualizer.width - 200
+        star_y = 30
+        
+        # Fundo do contador
+        counter_width = 180
+        counter_height = 60
+        counter_rect = pygame.Rect(star_x - 10, star_y - 10, counter_width, counter_height)
+        
+        # Desenhar fundo com transparencia
+        counter_surf = pygame.Surface((counter_width, counter_height), pygame.SRCALPHA)
+        pygame.draw.rect(counter_surf, (40, 5, 15, 180), (0, 0, counter_width, counter_height), border_radius=15)
+        pygame.draw.rect(counter_surf, (255, 215, 0, 200), (0, 0, counter_width, counter_height), width=3, border_radius=15)
+        self.visualizer.screen.blit(counter_surf, (star_x - 10, star_y - 10))
+        
+        # Ícone de estrela
+        star_size = 30
+        star_points = self._get_star_points(star_x + 20, star_y + 20, star_size//2)
+        pygame.draw.polygon(self.visualizer.screen, (255, 215, 0), star_points)
+        pygame.draw.polygon(self.visualizer.screen, (255, 255, 100), star_points, 2)
+        
+        # Texto do contador
+        font = self.visualizer.font_large
+        counter_text = f"{total_stars}/{self.total_possible_stars}"
+        text_surface = font.render(counter_text, True, (255, 255, 255))
+        text_rect = text_surface.get_rect(center=(star_x + 90, star_y + 20))
+        self.visualizer.screen.blit(text_surface, text_rect)
+        
+        # Texto "Estrelas" removido
+    
+    def _get_star_points(self, cx, cy, radius):
+        """Retorna os pontos para desenhar uma estrela de 5 pontas"""
+        import math
+        points = []
+        for i in range(10):
+            angle = math.pi * i / 5
+            if i % 2 == 0:
+                r = radius
+            else:
+                r = radius * 0.4
+            x = cx + r * math.cos(angle - math.pi/2)
+            y = cy + r * math.sin(angle - math.pi/2)
+            points.append((x, y))
+        return points
+
     def draw_video_background(self):
         """Desenha o vídeo de fundo sem overlay"""
         if self.video_frame:

@@ -44,6 +44,9 @@ class Visualizer:
         # Carregar background de nível completo
         self.load_level_complete_background()
         
+        # Carregar background de morte
+        self.load_death_background()
+        
         # Carregar imagens de estrelas
         self.load_star_images()
         
@@ -488,17 +491,18 @@ class Visualizer:
         # Use posição animada se disponível, senão posição do nó atual
         pos = animated_pos if animated_pos else node_positions[player.current_node]
         
-        # Verificar se está em combate
+        # Verificar se está em combate simultâneo
         if (game_instance and hasattr(game_instance, 'combat_state') and 
-            game_instance.combat_state == "player_attack" and 
+            game_instance.combat_state == "simultaneous_attack" and 
             hasattr(self, 'player_attack_sprites') and self.player_attack_sprites):
-            # Jogador atacando - usar sprites de ataque (velocidade aumentada)
+            # Combate simultâneo - jogador à esquerda
             import time
             frame_index = int((time.time() - game_instance.combat_start_time) * 15) % len(self.player_attack_sprites)
             attack_sprite = self.player_attack_sprites[frame_index]
             
-            # Desenhar sprite de ataque diretamente (sem backgrounds transparentes)
-            sprite_rect = attack_sprite.get_rect(center=pos)
+            # Posicionar jogador ligeiramente à esquerda durante combate
+            combat_pos = (pos[0] - 1, pos[1])
+            sprite_rect = attack_sprite.get_rect(center=combat_pos)
             self.screen.blit(attack_sprite, sprite_rect)
             
             return  # Sair cedo para não desenhar sprites normais
@@ -809,16 +813,40 @@ class Visualizer:
         # Reset hover state
         self.hovered_button = None
         
-        # Usar background de nível completo ou fallback para ninja
-        if hasattr(self, 'level_complete_bg') and self.level_complete_bg:
+        # Usar background baseado nas estrelas ou fallback
+        stars_earned = results.get('stars_earned', 0)
+        
+        # Escolher background baseado nas estrelas
+        background_used = False
+        
+        if stars_earned == 2 and hasattr(self, 'quase_la_bg') and self.quase_la_bg:
+            self.screen.blit(self.quase_la_bg, (0, 0))
+            background_used = True
+        elif stars_earned == 1 and hasattr(self, 'tente_nova_bg') and self.tente_nova_bg:
+            self.screen.blit(self.tente_nova_bg, (0, 0))
+            background_used = True
+        elif hasattr(self, 'level_complete_bg') and self.level_complete_bg:
+            # Background padrão para 3 estrelas ou quando não há fundo específico
             self.screen.blit(self.level_complete_bg, (0, 0))
-        else:
+            background_used = True
+        
+        # Fallback para ninja se não conseguir carregar nenhum background
+        if not background_used:
             self.draw_ninja_background()
         
         # Sistema de estrelas com imagens (acima das estatísticas)
         stars_earned = results.get('stars_earned', 0)
-        stars_y = 330  # Posição das estrelas ainda mais abaixo
-        self._draw_image_stars_at_position(stars_earned, stars_y)
+        
+        # Exibir imagem de estrelas baseada na classificação
+        if stars_earned in self.star_images:
+            star_image = self.star_images[stars_earned]
+            # Reduzir o tamanho das estrelas
+            star_height = int(star_image.get_height() * 0.7)  # 70% da altura original
+            star_width = int(star_image.get_width() * 0.7)   # Manter proporção
+            star_image = pygame.transform.scale(star_image, (star_width, star_height))
+            star_x = (self.width - star_width) // 2
+            star_y = 280  # Posição das estrelas mais próxima do topo
+            self.screen.blit(star_image, (star_x, star_y))
         
         # Relatório simplificado lado a lado (abaixo das estrelas)
         info_y = 370
@@ -845,7 +873,7 @@ class Visualizer:
         self.screen.blit(pontuacao_text, (pontuacao_x, info_y + 35))
         
         # Botões com imagens
-        y = info_y + 60  # Ainda menos espaço após as informações lado a lado
+        y = info_y + 60  # Espaço ajustado sem os requisitos
         can_advance = results.get('can_advance', False)
         
         # Botões da tela de conclusão
@@ -953,10 +981,7 @@ class Visualizer:
         total_width = 3 * star_size + 2 * 20  # 3 estrelas + espaçamento
         start_x = (self.width - total_width) // 2
         
-        # Título das estrelas
-        star_title = self.font_large.render("Classificação:", True, self.TEXT_COLOR)
-        title_rect = star_title.get_rect(center=(self.width // 2, star_y - 30))
-        self.screen.blit(star_title, title_rect)
+        # Título das estrelas removido - background já contém classificação
         
         # Desenha as 3 estrelas
         for i in range(3):
@@ -978,7 +1003,7 @@ class Visualizer:
             3: "PERFEITO!",
             2: "⭐ MUITO BOM! ⭐", 
             1: "⭐ BOM TRABALHO ⭐",
-            0: "❌ PRECISA MELHORAR"
+            0: ""
         }
         
         message = star_messages.get(stars_earned, "")
@@ -987,11 +1012,7 @@ class Visualizer:
             msg_rect = msg_surface.get_rect(center=(self.width // 2, star_y + 60))
             self.screen.blit(msg_surface, msg_rect)
         
-        # Requisitos para estrelas
-        req_text = "Requisitos: 1⭐(60%+)  2⭐(80%+)  3⭐(95%+)"
-        req_surface = self.font_small.render(req_text, True, (255, 255, 255))
-        req_rect = req_surface.get_rect(center=(self.width // 2, star_y + 90))
-        self.screen.blit(req_surface, req_rect)
+
     
     def _get_star_points(self, cx, cy, radius):
         """Retorna os pontos para desenhar uma estrela de 5 pontas"""
@@ -1251,6 +1272,109 @@ class Visualizer:
         self._draw_button("Menu Principal", self.width // 2 - 150, y, 300, 50, 
                         (80, 80, 120), "2 ou ESC", clickable=True, button_id="main_menu_gameover")
     
+    def draw_player_death(self):
+        """Desenha a tela de morte do jogador com layout similar ao fim de fase"""
+        # Reset hover state
+        self.hovered_button = None
+        
+        # Usar background de morte ou fallback
+        if hasattr(self, 'death_bg') and self.death_bg:
+            self.screen.blit(self.death_bg, (0, 0))
+        else:
+            self.draw_ninja_background()
+        
+        # Imagem de 0 estrelas (caveira ou imagem de falha)
+        if hasattr(self, 'star_images') and 1 in self.star_images:
+            # Usar imagem de uma estrela como placeholder, mas com tom sombrio
+            star_image = self.star_images[1].copy()
+            # Escurecer a imagem
+            dark_overlay = pygame.Surface(star_image.get_size())
+            dark_overlay.fill((100, 0, 0))  # Vermelho escuro
+            star_image.blit(dark_overlay, (0, 0), special_flags=pygame.BLEND_MULT)
+            
+            star_width = int(star_image.get_width() * 0.7)
+            star_height = int(star_image.get_height() * 0.7)
+            star_image = pygame.transform.scale(star_image, (star_width, star_height))
+            star_x = (self.width - star_width) // 2
+            star_y = 300
+            self.screen.blit(star_image, (star_x, star_y))
+        
+        # Relatório de morte (similar ao de fim de fase)
+        info_y = 370
+        
+        # Linha superior: Status da Morte
+        morte_text = self.font_medium.render("Status: MORTO", True, (255, 255, 255))
+        causa_text = self.font_medium.render("Causa: Muitos Inimigos", True, (255, 255, 255))
+        
+        # Posicionar textos lado a lado
+        morte_x = self.width // 4 - morte_text.get_width() // 2
+        causa_x = 3 * self.width // 4 - causa_text.get_width() // 2
+        
+        self.screen.blit(morte_text, (morte_x, info_y))
+        self.screen.blit(causa_text, (causa_x, info_y))
+        
+        # Linha inferior: Dica e Ação
+        dica_text = self.font_medium.render("Dica: Evite Inimigos", True, (255, 255, 255))
+        acao_text = self.font_medium.render("Ação: Tente Outro Caminho", True, (255, 255, 255))
+        
+        dica_x = self.width // 4 - dica_text.get_width() // 2
+        acao_x = 3 * self.width // 4 - acao_text.get_width() // 2
+        
+        self.screen.blit(dica_text, (dica_x, info_y + 35))
+        self.screen.blit(acao_text, (acao_x, info_y + 35))
+        
+        # Botões com imagens (similar ao fim de fase)
+        y = info_y + 85
+        
+        # Botões da tela de morte
+        death_buttons = [
+            ('repeat_level', 'retry_level'),
+            ('main_menu', 'main_menu_death')
+        ]
+        
+        button_spacing = 120
+        self.death_buttons = {}  # Para detecção de clique
+        mouse_pos = pygame.mouse.get_pos()
+        
+        for i, (button_key, button_id) in enumerate(death_buttons):
+            if button_key in self.button_images:
+                button_data = self.button_images[button_key]
+                
+                # Calcular posição do botão
+                button_width, button_height = button_data['normal'].get_size()
+                button_x = (self.width - button_width) // 2
+                button_y = y + (i * button_spacing)
+                
+                # Criar rect para detecção
+                button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+                
+                # Verificar hover
+                is_hover = button_rect.collidepoint(mouse_pos)
+                
+                # Escolher imagem
+                button_image = button_data['hover'] if is_hover else button_data['normal']
+                
+                # Desenhar botão
+                self.screen.blit(button_image, button_rect)
+                
+                # Armazenar para detecção de clique
+                self.death_buttons[button_id] = button_rect
+                
+                # Cursor
+                if not getattr(self, 'is_transitioning', False) and is_hover:
+                    pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+                elif not is_hover:
+                    pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+    
+    def handle_death_button_click(self, pos):
+        """Detecta cliques nos botões da tela de morte"""
+        if hasattr(self, 'death_buttons'):
+            for button_id, button_rect in self.death_buttons.items():
+                if button_rect.collidepoint(pos):
+                    print(f"🎯 Clique no botão de morte: {button_id}")
+                    return button_id
+        return None
+    
     def _calculate_node_positions(self, graph, center_x=None, center_y=None, radius=None):
         """Calcula posições dos nós na tela"""
         if center_x is None:
@@ -1505,9 +1629,11 @@ class Visualizer:
             self.background_image = None
     
     def load_level_complete_background(self):
-        """Carrega o background de nível completo"""
+        """Carrega os backgrounds de nível completo baseados nas estrelas"""
         try:
             import os
+            
+            # Background padrão (3 estrelas)
             bg_path = "images/background/nivelcompleto.png"
             if os.path.exists(bg_path):
                 original = pygame.image.load(bg_path).convert()
@@ -1516,9 +1642,48 @@ class Visualizer:
             else:
                 print(f"⚠️ Background de nível completo não encontrado: {bg_path}")
                 self.level_complete_bg = None
+            
+            # Background para 2 estrelas (quase lá)
+            quase_la_path = "images/background/quase-la.png"
+            if os.path.exists(quase_la_path):
+                original = pygame.image.load(quase_la_path).convert()
+                self.quase_la_bg = pygame.transform.scale(original, (self.width, self.height))
+                print(f"✅ Background 'quase lá' carregado: {quase_la_path}")
+            else:
+                print(f"⚠️ Background 'quase lá' não encontrado: {quase_la_path}")
+                self.quase_la_bg = None
+            
+            # Background para 1 estrela (tente nova)
+            tente_nova_path = "images/background/tente-nova.png"
+            if os.path.exists(tente_nova_path):
+                original = pygame.image.load(tente_nova_path).convert()
+                self.tente_nova_bg = pygame.transform.scale(original, (self.width, self.height))
+                print(f"✅ Background 'tente nova' carregado: {tente_nova_path}")
+            else:
+                print(f"⚠️ Background 'tente nova' não encontrado: {tente_nova_path}")
+                self.tente_nova_bg = None
+                
         except Exception as e:
-            print(f"❌ Erro ao carregar background de nível completo: {e}")
+            print(f"❌ Erro ao carregar backgrounds de nível completo: {e}")
             self.level_complete_bg = None
+            self.quase_la_bg = None
+            self.tente_nova_bg = None
+    
+    def load_death_background(self):
+        """Carrega o background de morte do jogador"""
+        try:
+            import os
+            death_path = "images/background/youdied.png"
+            if os.path.exists(death_path):
+                original = pygame.image.load(death_path).convert()
+                self.death_bg = pygame.transform.scale(original, (self.width, self.height))
+                print(f"☠️ Background de morte carregado: {death_path}")
+            else:
+                print(f"⚠️ Background de morte não encontrado: {death_path}")
+                self.death_bg = None
+        except Exception as e:
+            print(f"❌ Erro ao carregar background de morte: {e}")
+            self.death_bg = None
     
     def load_star_images(self):
         """Carrega as imagens de estrelas"""
@@ -1895,11 +2060,14 @@ class Visualizer:
                 if (game_instance and hasattr(game_instance, 'combat_state') and 
                     hasattr(game_instance, 'combat_node') and game_instance.combat_node == node_id):
                     
-                    if game_instance.combat_state == "enemy_attack":
-                        # Inimigo atacando - usar sprites de ataque (velocidade aumentada)
+                    if game_instance.combat_state == "simultaneous_attack":
+                        # Combate simultâneo - inimigo à direita atacando
                         if hasattr(self, 'enemy_attack_sprites') and self.enemy_attack_sprites:
                             frame_index = int((time.time() - game_instance.combat_start_time) * 15) % len(self.enemy_attack_sprites)
                             sprite_to_draw = self.enemy_attack_sprites[frame_index]
+                            # Posicionar inimigo à direita durante combate
+                            enemy_x = node_pos[0] + 15  # Mover para a direita
+                            enemy_y = node_pos[1] - 50
                     
                     elif game_instance.combat_state == "enemy_dead":
                         # Inimigo morrendo - usar sprites de morte (velocidade aumentada)
@@ -1914,9 +2082,17 @@ class Visualizer:
                         frame_index = int(time.time() * 8) % len(self.enemy_idle_sprites)
                         sprite_to_draw = self.enemy_idle_sprites[frame_index]
                 
-                # Desenhar o sprite do inimigo diretamente (sem backgrounds transparentes)
+                # Desenhar o sprite do inimigo sem efeitos piscantes
                 if sprite_to_draw:
                     self.screen.blit(sprite_to_draw, (enemy_x, enemy_y))
+                    
+                    # Apenas brilho sutil e constante para inimigos idle (sem pisca-pisca)
+                    if not (game_instance and hasattr(game_instance, 'combat_state') and 
+                            hasattr(game_instance, 'combat_node') and game_instance.combat_node == node_id):
+                        # Brilho sutil vermelho apenas para inimigos em idle
+                        glow_surf = pygame.Surface((90, 90), pygame.SRCALPHA)
+                        pygame.draw.circle(glow_surf, (255, 50, 50, 15), (45, 45), 45)
+                        self.screen.blit(glow_surf, (enemy_x - 5, enemy_y - 5))
                 else:
                     # Debug: se não há sprites carregados
                     print(f"⚠️ Nenhum sprite de inimigo disponível para o nó {node_id}")
