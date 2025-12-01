@@ -50,6 +50,9 @@ class Visualizer:
         # Carregar imagens de estrelas
         self.load_star_images()
         
+        # Sistema de vídeo final
+        self.final_video_cap = None
+        
         # Carregar imagens de inimigos
         self.load_enemy_images()
         
@@ -2096,3 +2099,212 @@ class Visualizer:
                 else:
                     # Debug: se não há sprites carregados
                     print(f"⚠️ Nenhum sprite de inimigo disponível para o nó {node_id}")
+    
+    def draw_game_final(self, final_stats):
+        """Desenha a tela final com vídeo, estatísticas médias e botão de menu"""
+        # Desenhar vídeo de fundo
+        self.draw_final_video_background()
+        
+        # Overlay escuro para melhor legibilidade
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.rect(overlay, (0, 0, 0, 120), (0, 0, self.width, self.height))
+        self.screen.blit(overlay, (0, 0))
+        
+        # Contador de estrelas estilo menu (centralizado)
+        self.draw_final_star_counter(final_stats)
+        
+        # Estatísticas médias
+        stats_y = 280
+        
+        # Coluna esquerda
+        left_stats = [
+            f"Níveis Completos: {final_stats['levels_completed']}/20",
+            f"Média de Estrelas: {final_stats['avg_stars_per_level']:.1f}/3.0",
+            f"Eficiência Média: {final_stats['avg_efficiency']:.1f}%"
+        ]
+        
+        # Coluna direita
+        right_stats = [
+            f"Nível do Jogador: {final_stats['player_level']}",
+            f"Pontuação Total: {final_stats['total_points']:,}",
+            f"Experiência Total: {final_stats['total_experience']:,}"
+        ]
+        
+        # Desenhar estatísticas em duas colunas
+        for i, (left_stat, right_stat) in enumerate(zip(left_stats, right_stats)):
+            y_pos = stats_y + (i * 40)
+            
+            # Coluna esquerda
+            left_surface = self.font_medium.render(left_stat, True, (255, 255, 255))
+            left_x = self.width // 4 - left_surface.get_width() // 2
+            self.screen.blit(left_surface, (left_x, y_pos))
+            
+            # Coluna direita
+            right_surface = self.font_medium.render(right_stat, True, (255, 255, 255))
+            right_x = 3 * self.width // 4 - right_surface.get_width() // 2
+            self.screen.blit(right_surface, (right_x, y_pos))
+        
+        # Botão de voltar ao menu (mesmo estilo da tela de conclusão)
+        self.draw_final_menu_button()
+    
+    def draw_final_video_background(self):
+        """Desenha o vídeo final.mp4 como fundo"""
+        try:
+            import cv2
+            import os
+            
+            if not hasattr(self, 'final_video_cap') or self.final_video_cap is None:
+                # Inicializar vídeo final
+                video_path = "videos/final.mp4"
+                if os.path.exists(video_path):
+                    self.final_video_cap = cv2.VideoCapture(video_path)
+                    self.final_video_frame_count = int(self.final_video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    print(f"🎬 Vídeo final carregado: {video_path}")
+                else:
+                    print(f"⚠️ Vídeo final não encontrado: {video_path}")
+                    self.final_video_cap = None
+                    self.draw_ninja_background()
+                    return
+            
+            if self.final_video_cap:
+                ret, frame = self.final_video_cap.read()
+                if not ret:
+                    # Reiniciar vídeo quando chegar ao final
+                    self.final_video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = self.final_video_cap.read()
+                
+                if ret:
+                    # Converter BGR (OpenCV) para RGB (Pygame)
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    # Redimensionar para o tamanho da tela
+                    frame = cv2.resize(frame, (self.width, self.height))
+                    # Converter para superficie pygame
+                    video_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+                    self.screen.blit(video_surface, (0, 0))
+                else:
+                    self.draw_ninja_background()
+            else:
+                self.draw_ninja_background()
+        except Exception as e:
+            print(f"❌ Erro ao reproduzir vídeo final: {e}")
+            self.draw_ninja_background()
+    
+    def draw_final_star_counter(self, final_stats):
+        """Desenha o contador de estrelas centralizado na tela final"""
+        total_stars = final_stats["total_stars"]
+        max_stars = final_stats["max_stars"]
+        
+        # Posição centralizada
+        counter_width = 300
+        counter_height = 80
+        counter_x = (self.width - counter_width) // 2
+        counter_y = 150
+        
+        # Fundo do contador
+        counter_surf = pygame.Surface((counter_width, counter_height), pygame.SRCALPHA)
+        pygame.draw.rect(counter_surf, (40, 5, 15, 200), (0, 0, counter_width, counter_height), border_radius=20)
+        pygame.draw.rect(counter_surf, (255, 215, 0, 255), (0, 0, counter_width, counter_height), width=4, border_radius=20)
+        self.screen.blit(counter_surf, (counter_x, counter_y))
+        
+        # Ícone de estrela maior
+        star_size = 40
+        star_x = counter_x + 50
+        star_y = counter_y + counter_height // 2
+        star_points = self._get_star_points(star_x, star_y, star_size//2)
+        pygame.draw.polygon(self.screen, (255, 215, 0), star_points)
+        pygame.draw.polygon(self.screen, (255, 255, 100), star_points, 3)
+        
+        # Texto do contador maior
+        counter_text = f"{total_stars}/{max_stars}"
+        text_surface = self.font_large.render(counter_text, True, (255, 255, 255))
+        text_x = counter_x + 120
+        text_y = counter_y + (counter_height - text_surface.get_height()) // 2
+        self.screen.blit(text_surface, (text_x, text_y))
+        
+        # Label "ESTRELAS TOTAIS"
+        label_text = "ESTRELAS TOTAIS"
+        label_surface = self.font_small.render(label_text, True, (255, 215, 0))
+        label_x = counter_x + (counter_width - label_surface.get_width()) // 2
+        label_y = counter_y + counter_height + 10
+        self.screen.blit(label_surface, (label_x, label_y))
+    
+    def draw_final_menu_button(self):
+        """Desenha o botão de menu na tela final usando a mesma imagem da tela de conclusão"""
+        mouse_pos = pygame.mouse.get_pos()
+        
+        # Usar a imagem do botão main_menu se disponível
+        if hasattr(self, 'button_images') and 'main_menu' in self.button_images:
+            button_data = self.button_images['main_menu']
+            
+            # Calcular posição do botão (centralizado na parte inferior)
+            button_width, button_height = button_data['normal'].get_size()
+            button_x = (self.width - button_width) // 2
+            button_y = self.height - 120
+            
+            # Criar rect para detecção
+            button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+            
+            # Verificar hover
+            is_hover = button_rect.collidepoint(mouse_pos)
+            
+            if is_hover:
+                self.hovered_button = 'main_menu_final'
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+            
+            # Escolher imagem baseada no estado
+            if is_hover and 'hover' in button_data:
+                button_image = button_data['hover']
+            else:
+                button_image = button_data['normal']
+            
+            # Desenhar botão
+            self.screen.blit(button_image, (button_x, button_y))
+            
+            # Armazenar para detecção de clique
+            if not hasattr(self, 'final_button_rect'):
+                self.final_button_rect = {}
+            self.final_button_rect['main_menu_final'] = button_rect
+        else:
+            # Fallback: botão de texto
+            button_text = "Voltar ao Menu"
+            button_surface = self.font_large.render(button_text, True, (255, 255, 255))
+            button_rect = button_surface.get_rect(center=(self.width // 2, self.height - 100))
+            
+            # Fundo do botão
+            padding = 20
+            bg_rect = button_rect.inflate(padding * 2, padding)
+            pygame.draw.rect(self.screen, (40, 5, 15), bg_rect, border_radius=10)
+            pygame.draw.rect(self.screen, (255, 215, 0), bg_rect, width=3, border_radius=10)
+            
+            self.screen.blit(button_surface, button_rect)
+    
+    def handle_final_button_click(self, pos):
+        """Detecta cliques nos botões da tela final"""
+        if hasattr(self, 'final_button_rect'):
+            for button_id, button_rect in self.final_button_rect.items():
+                if button_rect.collidepoint(pos):
+                    print(f"🖱️ Botão clicado na tela final: {button_id}")
+                    return button_id
+        
+        # Fallback: área do botão de texto
+        button_y = self.height - 100
+        button_rect = pygame.Rect(self.width // 2 - 100, button_y - 25, 200, 50)
+        if button_rect.collidepoint(pos):
+            return "main_menu_final"
+        
+        return None
+    
+    def _get_star_points(self, cx, cy, radius):
+        """Retorna os pontos para desenhar uma estrela de 5 pontas"""
+        import math
+        points = []
+        for i in range(10):
+            angle = math.pi * i / 5
+            if i % 2 == 0:
+                r = radius
+            else:
+                r = radius * 0.4
+            x = cx + r * math.cos(angle - math.pi/2)
+            y = cy + r * math.sin(angle - math.pi/2)
+            points.append((x, y))
+        return points

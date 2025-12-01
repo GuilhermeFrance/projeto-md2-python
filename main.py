@@ -45,7 +45,7 @@ class Game:
         self.player = Player("Explorador")
         self.current_level = 1
         self.world = None
-        self.game_state = "menu"  # menu, playing, level_complete, game_over
+        self.game_state = "menu"  # menu, playing, level_complete, game_over, game_final
         self.show_optimal_path = False
         self.clicked_nodes = set()
         
@@ -191,6 +191,12 @@ class Game:
                         # Voltar ao menu
                         self.player.reset_lives()
                         self.game_state = "menu"
+                
+                # Tela Final (jogo completo)
+                if self.game_state == "game_final":
+                    if event.key == pygame.K_SPACE or event.key == pygame.K_1 or event.key == pygame.K_ESCAPE:
+                        # Voltar ao menu principal
+                        self.goto_menu_with_transition()
             
             # Cliques do mouse
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -229,6 +235,9 @@ class Game:
                 
                 elif self.game_state == "game_over":
                     self.handle_game_over_click(pos)
+                
+                elif self.game_state == "game_final":
+                    self.handle_game_final_click(pos)
         
         return True
     
@@ -539,7 +548,8 @@ class Game:
                 if self.current_level < 20:
                     self.start_level_with_transition(self.current_level + 1)
                 else:
-                    self.goto_menu_with_transition()
+                    # Completou todos os níveis - ir para tela final
+                    self.goto_final_screen_with_transition()
         elif clicked_button == "repeat_level":
             self.start_level_with_transition(self.current_level)
         elif clicked_button == "main_menu":
@@ -718,6 +728,13 @@ class Game:
         # Botão 2: Menu (y = 490)
         elif button_x <= pos[0] <= button_x + button_width and 490 <= pos[1] <= 490 + button_height:
             self.player.reset_lives()
+            self.goto_menu_with_transition()
+    
+    def handle_game_final_click(self, pos):
+        """Gerencia cliques na tela de jogo completo"""
+        button_clicked = self.visualizer.handle_final_button_click(pos)
+        
+        if button_clicked == "main_menu_final":
             self.goto_menu_with_transition()
     
     def handle_menu_click(self, pos):
@@ -1024,6 +1041,9 @@ class Game:
         elif self.game_state == "game_over":
             self.visualizer.draw_game_over(self.player)
         
+        elif self.game_state == "game_final":
+            self.visualizer.draw_game_final(self.get_final_stats())
+        
         # Desenhar UI moderna por cima (temporariamente desabilitado)
         # self.modern_ui.draw(self.visualizer.screen)
         
@@ -1058,6 +1078,10 @@ class Game:
         if self.video_cap:
             self.video_cap.release()
         
+        # Limpar vídeo final
+        if hasattr(self.visualizer, 'final_video_cap') and self.visualizer.final_video_cap:
+            self.visualizer.final_video_cap.release()
+        
         pygame.quit()
         print("\n👋 Obrigado por jogar PathFinder Adventure!\n")
         sys.exit()
@@ -1088,6 +1112,12 @@ class Game:
             callback = lambda: self._execute_goto_game_over()
             self.visualizer.start_fade_transition(callback)
     
+    def goto_final_screen_with_transition(self):
+        """Vai para tela final com transição fade"""
+        if not self.visualizer.is_transitioning:
+            callback = lambda: self._execute_goto_final_screen()
+            self.visualizer.start_fade_transition(callback)
+    
     def _execute_start_level(self, level):
         """Executa o início do nível após transição"""
         self.start_level(level)
@@ -1112,6 +1142,12 @@ class Game:
         """Executa ida para game over após transição"""
         self.game_state = "game_over"
         self.clicked_nodes = set()
+    
+    def _execute_goto_final_screen(self):
+        """Executa ida para tela final após transição"""
+        self.game_state = "game_final"
+        self.clicked_nodes = set()
+        print("🎉 PARABÉNS! Você completou todos os 20 níveis!")
     
     def load_video_background(self):
         """Carrega o vídeo de fundo para o menu"""
@@ -1182,6 +1218,39 @@ class Game:
     def get_total_stars_earned(self):
         """Retorna o total de estrelas conquistadas"""
         return sum(self.stars_earned.values())
+    
+    def get_final_stats(self):
+        """Calcula as estatísticas finais médias para exibir na tela final"""
+        total_stars = self.get_total_stars_earned()
+        levels_completed = len(self.stars_earned)
+        
+        # Calcular médias
+        avg_stars_per_level = total_stars / max(levels_completed, 1)
+        efficiency_sum = 0
+        efficiency_count = 0
+        
+        # Calcular eficiência média (aproximada baseada nas estrelas)
+        for level_id, stars in self.stars_earned.items():
+            if stars == 3:
+                efficiency_sum += 95  # Aproximadamente 95% para 3 estrelas
+            elif stars == 2:
+                efficiency_sum += 87.5  # Aproximadamente 87.5% para 2 estrelas
+            elif stars == 1:
+                efficiency_sum += 70  # Aproximadamente 70% para 1 estrela
+            efficiency_count += 1
+        
+        avg_efficiency = efficiency_sum / max(efficiency_count, 1)
+        
+        return {
+            "total_stars": total_stars,
+            "max_stars": self.total_possible_stars,
+            "levels_completed": levels_completed,
+            "avg_stars_per_level": avg_stars_per_level,
+            "avg_efficiency": avg_efficiency,
+            "player_level": self.player.level,
+            "total_points": self.player.points,
+            "total_experience": self.player.experience + (self.player.level - 1) * 100
+        }
     
     def get_highest_accessible_level(self):
         """Encontra o nível mais alto que o jogador pode acessar"""
