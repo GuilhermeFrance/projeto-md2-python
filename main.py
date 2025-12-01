@@ -97,8 +97,8 @@ class Game:
             self.update_movement_animation()
             self.update_combat_animation()
         
-        # Detectar combinações de teclas para movimento diagonal
-        if self.game_state == "playing":
+        # Detectar combinações de teclas para movimento diagonal (apenas se não está em combate)
+        if self.game_state == "playing" and not self.is_in_combat():
             keys = pygame.key.get_pressed()
             self.handle_diagonal_movement(keys)
         
@@ -135,11 +135,16 @@ class Game:
                 
                 # Durante o jogo
                 if self.game_state == "playing":
-                    if event.key == pygame.K_SPACE:
-                        self.show_optimal_path = not self.show_optimal_path
-                    elif event.key == pygame.K_r:
+                    # Sempre permitir tecla R (reiniciar) mesmo durante combate
+                    if event.key == pygame.K_r:
                         # Reiniciar fase (consome uma vida)
                         self.restart_level()
+                    # Bloquear outros comandos durante combate
+                    elif self.is_in_combat():
+                        print("⚔️ Comando bloqueado durante combate!")
+                        pass  # Simplesmente ignora o comando sem processar
+                    elif event.key == pygame.K_SPACE:
+                        self.show_optimal_path = not self.show_optimal_path
                     elif event.key == pygame.K_t:
                         # Alternar modo do sprite (T = Toggle)
                         if hasattr(self.visualizer, 'idle_sprites') and self.visualizer.idle_sprites:
@@ -204,9 +209,9 @@ class Game:
                 
                 if self.game_state == "playing":
                     # Bloquear movimento durante combate
-                    if hasattr(self, 'combat_state') and self.combat_state in ["simultaneous_attack", "enemy_dead"]:
-                        print("⚡ Movimento bloqueado durante combate!")
-                        return
+                    if self.is_in_combat():
+                        print("⚔️ Clique bloqueado durante combate!")
+                        continue  # Usar continue para pular para o próximo evento
                         
                     clicked_node = self.get_clicked_node(pos)
                     if clicked_node is not None:
@@ -268,6 +273,11 @@ class Game:
     
     def handle_node_click(self, node, bypass_confirmation=False):
         """Gerencia o clique em um nó"""
+        # Bloquear cliques durante combate
+        if self.is_in_combat():
+            print("⚔️ Clique bloqueado durante combate!")
+            return
+            
         current = self.player.current_node
         
         # Verifica se já não estamos neste nó (evita movimentos duplicados)
@@ -295,6 +305,10 @@ class Game:
     def handle_diagonal_movement(self, keys):
         """Detecta e processa movimento diagonal usando combinações de teclas"""
         import time
+        
+        # Bloquear movimento durante combate
+        if self.is_in_combat():
+            return
         
         # Verifica cooldown para evitar movimentos repetidos
         current_time = time.time()
@@ -330,6 +344,12 @@ class Game:
     def move_player_diagonal_direction(self, direction):
         """Move o jogador na direção diagonal especificada"""
         import time
+        
+        # Bloquear movimento durante combate
+        if self.is_in_combat():
+            print("⚔️ Movimento bloqueado durante combate!")
+            return
+        
         current_time = time.time()
         
         current = self.player.current_node
@@ -428,6 +448,11 @@ class Game:
         """Move o jogador na direção especificada (WASD) com lógica aprimorada"""
         import time
         
+        # Bloquear movimento durante combate
+        if self.is_in_combat():
+            print("⚔️ Movimento bloqueado durante combate!")
+            return
+        
         # Verifica cooldown para evitar movimentos repetidos
         current_time = time.time()
         if current_time - self.last_move_time < self.move_cooldown:
@@ -510,11 +535,18 @@ class Game:
         self.current_level = level_id
         self.world = World(level_id)
         self.player.reset_level(self.world.start_node)
+        # Garantir que o jogador sempre inicia com vida cheia
+        self.player.health = self.player.max_health
         self.world.start_level()
         self.game_state = "playing"
         
         # Resetar contador de inimigos enfrentados
         self.enemies_fought = 0
+        
+        # Limpar estados de combate
+        self.combat_state = None
+        self.combat_node = None
+        self.dead_enemies = set()
         
         # Salvar checkpoint da fase atual (só após confirmar acesso)
         self.save_star_progress()
@@ -522,8 +554,21 @@ class Game:
         self.clicked_nodes = set()
         self.last_move_time = 0  # Reset do cooldown de movimento
     
+    def is_in_combat(self):
+        """Verifica se o jogador está em combate"""
+        return hasattr(self, 'combat_state') and self.combat_state is not None
+    
     def restart_level(self):
         """Reinicia o nível atual (consome uma vida)"""
+        # Limpar estado de combate antes de reiniciar
+        self.combat_state = None
+        self.combat_node = None
+        self.is_moving = False
+        self.dead_enemies = set()
+        
+        # Sempre restaurar vida cheia independentemente do estado
+        self.player.health = self.player.max_health
+        
         if self.player.has_lives():
             self.player.lose_life()
             print(f"🔄 Reiniciando fase... Vidas restantes: {self.player.lives}")
@@ -606,6 +651,12 @@ class Game:
         if self.combat_state is None:
             return
             
+        # Proteção contra combate mal inicializado
+        if not hasattr(self, 'combat_start_time'):
+            print("⚠️ Combate sem tempo de início - cancelando...")
+            self.combat_state = None
+            return
+            
         elapsed = time.time() - self.combat_start_time
         
         if elapsed >= self.combat_duration:
@@ -618,6 +669,12 @@ class Game:
                 
     def _apply_combat_damage(self):
         """Aplica danos durante o combate simultâneo"""
+        # Proteção contra combate mal inicializado
+        if not hasattr(self, 'combat_player_initial_health'):
+            print("⚠️ Combate mal inicializado - cancelando...")
+            self.combat_state = None
+            return
+            
         # Jogador sempre perde METADE da vida ao passar por vértice com inimigo
         player_damage = self.combat_player_initial_health // 2  # Metade da vida
         
@@ -817,6 +874,11 @@ class Game:
     
     def execute_movement(self, from_node, to_node):
         """Executa o movimento com animação"""
+        # Bloquear movimento durante combate
+        if self.is_in_combat():
+            print("⚔️ Movimento bloqueado durante combate!")
+            return
+            
         self.is_moving = True
         self.move_start_time = time.time()
         self.move_from_node = from_node
